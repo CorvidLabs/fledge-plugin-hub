@@ -13,9 +13,8 @@
       <span class="logo-text">fledge hub</span>
     </div>
     <ul class="nav-links">
-      <li><a href="#" class="nav-link active" data-page="overview">Overview</a></li>
-      <li><a href="#" class="nav-link" data-page="plugins">Plugins</a></li>
-      <li><a href="#" class="nav-link" data-page="templates">Templates</a></li>
+      <li><a href="#" class="nav-link active" data-page="store">Store</a></li>
+      <li><a href="#" class="nav-link" data-page="installed">Installed</a></li>
       <li><a href="#" class="nav-link" data-page="lanes">Lanes</a></li>
       <li><a href="#" class="nav-link" data-page="config">Config</a></li>
       <li><a href="#" class="nav-link" data-page="doctor">Doctor</a></li>
@@ -26,50 +25,72 @@
   </nav>
 
   <main class="content">
-    <div id="page-overview" class="page active">
-      <h1>Overview</h1>
+    <!-- Store / Browse -->
+    <div id="page-store" class="page active">
+      <h1>Browse Packages</h1>
+      <div class="toolbar">
+        <input type="text" id="store-search" placeholder="Search fledge plugins and templates..." class="search-input">
+        <button id="store-search-btn" class="btn">Search</button>
+      </div>
+      <div class="category-tabs">
+        <button class="tab active" data-category="all">All</button>
+        <button class="tab" data-category="plugins">Plugins</button>
+        <button class="tab" data-category="templates">Templates</button>
+      </div>
+      <div id="store-grid" class="store-grid">
+        <div class="loading">Loading packages from GitHub...</div>
+      </div>
+    </div>
+
+    <!-- Installed -->
+    <div id="page-installed" class="page">
+      <h1>Installed</h1>
       <div class="stats-grid" id="stats-grid"></div>
-      <div class="card">
-        <h2>Commands</h2>
+      <div class="section-tabs">
+        <button class="section-tab active" data-section="plugins">Plugins</button>
+        <button class="section-tab" data-section="templates">Templates</button>
+        <button class="section-tab" data-section="commands">Commands</button>
+      </div>
+      <div id="installed-plugins" class="installed-section active">
+        <div id="installed-plugins-list" class="item-grid"></div>
+      </div>
+      <div id="installed-templates" class="installed-section">
+        <div id="installed-templates-list" class="item-grid"></div>
+      </div>
+      <div id="installed-commands" class="installed-section">
         <div id="command-tree" class="command-tree"></div>
       </div>
     </div>
 
-    <div id="page-plugins" class="page">
-      <h1>Plugins</h1>
-      <div class="toolbar">
-        <input type="text" id="plugin-search" placeholder="Search available plugins..." class="search-input">
-        <button id="plugin-search-btn" class="btn">Search</button>
-      </div>
-      <div class="card">
-        <h2>Installed</h2>
-        <div id="plugins-list" class="item-grid"></div>
-      </div>
-      <div class="card" id="plugin-search-results-card" style="display:none">
-        <h2>Search Results</h2>
-        <div id="plugin-search-results" class="item-grid"></div>
-      </div>
-    </div>
-
-    <div id="page-templates" class="page">
-      <h1>Templates</h1>
-      <div id="templates-list" class="item-grid"></div>
-    </div>
-
+    <!-- Lanes -->
     <div id="page-lanes" class="page">
       <h1>Lanes</h1>
       <div id="lanes-list" class="lanes-list"></div>
     </div>
 
+    <!-- Config -->
     <div id="page-config" class="page">
       <h1>Config</h1>
       <div id="config-list" class="config-list"></div>
     </div>
 
+    <!-- Doctor -->
     <div id="page-doctor" class="page">
       <h1>Doctor</h1>
       <div class="card">
         <pre id="doctor-output" class="terminal-output"></pre>
+      </div>
+    </div>
+
+    <!-- Readme modal -->
+    <div id="readme-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content card">
+        <div class="modal-header">
+          <h2 id="readme-title"></h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div id="readme-body" class="readme-body"></div>
       </div>
     </div>
   </main>

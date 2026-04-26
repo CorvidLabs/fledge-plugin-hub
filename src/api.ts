@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { fledge, fledgeJson } from "./fledge";
+import { browseAll, browsePlugins, browseTemplates, getRepoReadme } from "./github";
 
 export const api = new Hono();
 
@@ -46,4 +47,28 @@ api.get("/info", async (c) => {
     version: version.stdout.trim(),
     commands: result,
   });
+});
+
+api.get("/github/browse", async (c) => {
+  const category = c.req.query("category") || "all";
+  const query = c.req.query("q") || undefined;
+  try {
+    let repos;
+    if (category === "plugins") repos = await browsePlugins(query);
+    else if (category === "templates") repos = await browseTemplates(query);
+    else repos = await browseAll(query);
+    return c.json({ items: repos, total: repos.length });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg, items: [] }, 502);
+  }
+});
+
+api.get("/github/readme/:owner/:repo", async (c) => {
+  try {
+    const content = await getRepoReadme(c.req.param("owner"), c.req.param("repo"));
+    return c.json({ content });
+  } catch {
+    return c.json({ error: "README not found" }, 404);
+  }
 });
