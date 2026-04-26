@@ -267,7 +267,8 @@ function renderProject(info) {
   const headerHtml = `
     <div class="project-header">
       <div class="project-header-main">
-        <h1>${escape(info.name || "Project")}</h1>
+        <div class="project-header-kicker"><span>§ 01 · Project</span></div>
+        <h1>${escape(info.name || "Untitled")}</h1>
         <div class="project-header-meta">
           ${info.version ? `<span class="badge badge-version">v${escape(info.version)}</span>` : ""}
           ${info.branch ? `<span class="badge badge-team">${escape(info.branch)}</span>` : ""}
@@ -276,7 +277,7 @@ function renderProject(info) {
         <div class="project-header-cwd">${escape(info.cwd || "")}</div>
       </div>
       <div class="project-header-actions">
-        ${info.remoteUrl ? `<button class="btn btn-outline" data-action="open-repo">Open repo</button>` : ""}
+        ${info.remoteUrl ? `<button class="btn btn-outline" data-action="open-repo">Open repo ↗</button>` : ""}
       </div>
     </div>
   `;
