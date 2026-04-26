@@ -13,7 +13,10 @@
       <span class="logo-text">fledge hub</span>
     </div>
     <ul class="nav-links">
-      <li><a href="#" class="nav-link active" data-page="store">Store</a></li>
+      <li class="nav-section">Project</li>
+      <li><a href="#" class="nav-link active" data-page="project">Overview</a></li>
+      <li class="nav-section">Global</li>
+      <li><a href="#" class="nav-link" data-page="store">Store</a></li>
       <li><a href="#" class="nav-link" data-page="installed">Installed</a></li>
       <li><a href="#" class="nav-link" data-page="lanes">Lanes</a></li>
       <li><a href="#" class="nav-link" data-page="config">Config</a></li>
@@ -25,8 +28,14 @@
   </nav>
 
   <main class="content">
+    <!-- Project overview -->
+    <div id="page-project" class="page active">
+      <div id="project-header"></div>
+      <div id="project-content"></div>
+    </div>
+
     <!-- Store / Browse -->
-    <div id="page-store" class="page active">
+    <div id="page-store" class="page">
       <h1>Browse Packages</h1>
       <div class="toolbar">
         <input type="text" id="store-search" placeholder="Search fledge plugins and templates..." class="search-input">

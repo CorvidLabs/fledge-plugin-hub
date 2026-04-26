@@ -254,7 +254,204 @@ let currentSearch = "";
 
 const loaded = {};
 
+function statusDot(status) {
+  const s = String(status || "").toLowerCase();
+  const cls = s === "ok" ? "status-ok" : s === "warn" ? "status-warn" : s === "fail" ? "status-fail" : "";
+  return `<span class="status-dot ${cls}"></span>`;
+}
+
+function renderProject(info) {
+  const header = $("#project-header");
+  const content = $("#project-content");
+
+  const headerHtml = `
+    <div class="project-header">
+      <div class="project-header-main">
+        <h1>${escape(info.name || "Project")}</h1>
+        <div class="project-header-meta">
+          ${info.version ? `<span class="badge badge-version">v${escape(info.version)}</span>` : ""}
+          ${info.branch ? `<span class="badge badge-team">${escape(info.branch)}</span>` : ""}
+          ${(info.languages || []).map((l) => `<span class="badge badge-command">${escape(l)}</span>`).join("")}
+        </div>
+        <div class="project-header-cwd">${escape(info.cwd || "")}</div>
+      </div>
+      <div class="project-header-actions">
+        ${info.remoteUrl ? `<button class="btn btn-outline" data-action="open-repo">Open repo</button>` : ""}
+      </div>
+    </div>
+  `;
+  html(header, headerHtml);
+
+  const healthHtml = `
+    <div class="card">
+      <h2>Health</h2>
+      <div class="health-list">
+        ${(info.health || []).map((h) => `
+          <div class="health-item">
+            ${statusDot(h.status)}
+            <span class="health-name">${escape(h.name)}</span>
+            <span class="health-detail">${escape(h.detail || "")}</span>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+
+  const tasksHtml = info.hasFledgeToml ? `
+    <div class="card">
+      <h2>Tasks</h2>
+      ${info.tasks.length === 0 ? renderEmpty("No tasks defined in fledge.toml") : `
+        <div class="run-list">
+          ${info.tasks.map((t) => `
+            <div class="run-item">
+              <div class="run-item-body">
+                <div class="run-item-name">${escape(t.name)}</div>
+                ${t.description ? `<div class="run-item-desc">${escape(t.description)}</div>` : ""}
+                ${t.cmd ? `<div class="run-item-cmd"><code>${escape(t.cmd)}</code></div>` : ""}
+              </div>
+              <button class="btn btn-sm" data-action="run-task" data-name="${escape(t.name)}">Run</button>
+            </div>
+          `).join("")}
+        </div>
+      `}
+    </div>
+  ` : "";
+
+  const lanesHtml = info.hasFledgeToml ? `
+    <div class="card">
+      <h2>Lanes</h2>
+      ${info.lanes.length === 0 ? renderEmpty("No lanes defined") : `
+        <div class="run-list">
+          ${info.lanes.map((l) => `
+            <div class="run-item">
+              <div class="run-item-body">
+                <div class="run-item-name">${escape(l.name)}</div>
+                ${l.description ? `<div class="run-item-desc">${escape(l.description)}</div>` : ""}
+                <div class="run-item-meta">
+                  ${l.steps != null ? `<span class="badge badge-version">${l.steps} steps</span>` : ""}
+                  ${l.fail_fast ? `<span class="badge badge-team">fail-fast</span>` : ""}
+                </div>
+              </div>
+              <button class="btn btn-sm" data-action="run-lane" data-name="${escape(l.name)}">Run</button>
+            </div>
+          `).join("")}
+        </div>
+      `}
+    </div>
+  ` : "";
+
+  const commitsHtml = info.isGit && info.commits.length > 0 ? `
+    <div class="card">
+      <h2>Recent commits</h2>
+      <div class="commits-list">
+        ${info.commits.slice(0, 10).map((c) => `
+          <div class="commit-row">
+            <span class="commit-hash">${escape(c.hash)}</span>
+            <span class="commit-subject">${escape(c.subject)}</span>
+            <span class="commit-meta">${escape(c.author)} · ${escape(c.date)}</span>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  ` : "";
+
+  const workingTreeHtml = info.isGit && info.workingTree.length > 0 ? `
+    <div class="card">
+      <h2>Working tree (${info.workingTree.length})</h2>
+      <pre class="terminal-output">${escape(info.workingTree.join("\n"))}</pre>
+    </div>
+  ` : "";
+
+  const tagsHtml = info.tags.length > 0 ? `
+    <div class="card">
+      <h2>Recent tags</h2>
+      <div class="tag-list">
+        ${info.tags.map((t) => `<span class="badge badge-version">${escape(t)}</span>`).join("")}
+      </div>
+    </div>
+  ` : "";
+
+  html(content, `
+    <div id="run-output-card" class="card hidden">
+      <div class="run-output-header">
+        <h2 id="run-output-title">Output</h2>
+        <button class="btn-icon" data-action="close-output" aria-label="Close">&times;</button>
+      </div>
+      <pre class="terminal-output" id="run-output-body"></pre>
+    </div>
+    ${healthHtml}
+    ${tasksHtml}
+    ${lanesHtml}
+    ${commitsHtml}
+    ${workingTreeHtml}
+    ${tagsHtml}
+  `);
+}
+
+function showRunOutput(title, body, kind = "info") {
+  const card = $("#run-output-card");
+  const titleEl = $("#run-output-title");
+  const bodyEl = $("#run-output-body");
+  titleEl.textContent = title;
+  bodyEl.textContent = body;
+  card.classList.remove("hidden", "run-output-success", "run-output-error", "run-output-info");
+  card.classList.add(`run-output-${kind}`);
+  card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function runTask(name, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Running…"; }
+  showToast(`Running ${name}…`, "info", 0);
+  showRunOutput(`fledge run ${name}`, "Running…", "info");
+  const result = await postJSON("/project/run-task", { task: name });
+  const output = (result?.stdout || "") + (result?.stderr ? "\n\n" + result.stderr : "");
+  if (result?.success) {
+    showToast(`Task ${name} succeeded`, "success");
+    showRunOutput(`fledge run ${name} (exit ${result.exitCode})`, output || "(no output)", "success");
+  } else {
+    showToast(`Task ${name} failed`, "error", 6000);
+    showRunOutput(`fledge run ${name} (exit ${result?.exitCode ?? "?"})`, output || result?.error || "(no output)", "error");
+  }
+  if (btn) { btn.disabled = false; btn.textContent = "Run"; }
+}
+
+async function runLane(name, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Running…"; }
+  showToast(`Running lane ${name}…`, "info", 0);
+  showRunOutput(`fledge lanes run ${name}`, "Running…", "info");
+  const result = await postJSON("/project/run-lane", { lane: name });
+  const output = (result?.stdout || "") + (result?.stderr ? "\n\n" + result.stderr : "");
+  if (result?.success) {
+    showToast(`Lane ${name} succeeded`, "success");
+    showRunOutput(`fledge lanes run ${name} (exit ${result.exitCode})`, output || "(no output)", "success");
+  } else {
+    showToast(`Lane ${name} failed`, "error", 6000);
+    showRunOutput(`fledge lanes run ${name} (exit ${result?.exitCode ?? "?"})`, output || result?.error || "(no output)", "error");
+  }
+  if (btn) { btn.disabled = false; btn.textContent = "Run"; }
+}
+
+async function openRepo() {
+  const result = await postJSON("/project/open-repo", {});
+  if (result?.opened) {
+    showToast(`Opened ${result.url}`, "success");
+  } else {
+    showToast(result?.error || "Could not open repo", "error");
+  }
+}
+
 const loaders = {
+  async project() {
+    const header = $("#project-header");
+    html(header, '<div class="loading">Loading project…</div>');
+    const info = await api("/project");
+    if (info?.error) {
+      html(header, renderError(typeof info.error === "string" ? info.error : JSON.stringify(info.error)));
+      return;
+    }
+    renderProject(info);
+  },
+
   async store() {
     const grid = $("#store-grid");
     html(grid, '<div class="loading">Loading packages from GitHub...</div>');
@@ -490,6 +687,14 @@ document.addEventListener("click", (e) => {
     updatePlugin(btn.dataset.name, btn);
   } else if (action === "readme") {
     showReadme(btn.dataset.owner, btn.dataset.repo);
+  } else if (action === "run-task") {
+    runTask(btn.dataset.name, btn);
+  } else if (action === "run-lane") {
+    runLane(btn.dataset.name, btn);
+  } else if (action === "open-repo") {
+    openRepo();
+  } else if (action === "close-output") {
+    $("#run-output-card")?.classList.add("hidden");
   }
 });
 
@@ -549,5 +754,5 @@ $(".modal-close")?.addEventListener("click", () => {
   if (info?.version) {
     $("#fledge-version").textContent = info.version;
   }
-  navigate("store");
+  navigate("project");
 })();

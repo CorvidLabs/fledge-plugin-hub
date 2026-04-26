@@ -1,8 +1,53 @@
 import { Hono } from "hono";
-import { fledge, fledgeJson } from "./fledge";
+import { fledge, fledgeJson, projectCwd } from "./fledge";
 import { browseAll, browsePlugins, browseTemplates, getRepoReadme } from "./github";
+import { gatherProjectInfo, openInBrowser } from "./project";
 
 export const api = new Hono();
+
+api.get("/project", async (c) => {
+  const info = await gatherProjectInfo();
+  return c.json(info);
+});
+
+api.post("/project/run-task", async (c) => {
+  const body = await c.req.json<{ task?: string }>().catch(() => ({}));
+  const task = body.task;
+  if (!task || !/^[A-Za-z0-9_-]+$/.test(task)) {
+    return c.json({ error: "invalid task name" }, 400);
+  }
+  const cwd = projectCwd();
+  const result = await fledge(["run", task], { cwd, timeoutMs: 120_000 });
+  return c.json({
+    success: result.exitCode === 0,
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  });
+});
+
+api.post("/project/run-lane", async (c) => {
+  const body = await c.req.json<{ lane?: string }>().catch(() => ({}));
+  const lane = body.lane;
+  if (!lane || !/^[A-Za-z0-9_-]+$/.test(lane)) {
+    return c.json({ error: "invalid lane name" }, 400);
+  }
+  const cwd = projectCwd();
+  const result = await fledge(["lanes", "run", lane], { cwd, timeoutMs: 300_000 });
+  return c.json({
+    success: result.exitCode === 0,
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  });
+});
+
+api.post("/project/open-repo", async (c) => {
+  const info = await gatherProjectInfo();
+  if (!info.remoteUrl) return c.json({ error: "no remote found" }, 404);
+  const opened = await openInBrowser(info.remoteUrl);
+  return c.json({ opened, url: info.remoteUrl });
+});
 
 api.get("/introspect", async (c) => {
   const result = await fledgeJson(["introspect", "--json"]);

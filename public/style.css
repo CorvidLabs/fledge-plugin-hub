@@ -70,6 +70,16 @@ body {
 .nav-link:hover { color: var(--text); background: var(--bg-hover); }
 .nav-link.active { color: var(--accent); border-left-color: var(--accent); background: var(--bg-hover); }
 
+.nav-section {
+  list-style: none;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 0.75rem 1rem 0.25rem;
+  font-weight: 600;
+}
+
 .sidebar-footer {
   padding: 1rem;
   border-top: 1px solid var(--border);
@@ -565,6 +575,109 @@ h2 {
   word-wrap: break-word;
   font-family: monospace;
 }
+
+/* --- Project --- */
+.project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-header h1 { margin-bottom: 0.4rem; }
+.project-header-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.project-header-cwd { font-family: monospace; font-size: 0.75rem; color: var(--text-muted); word-break: break-all; }
+.project-header-actions { flex-shrink: 0; }
+
+.health-list { display: flex; flex-direction: column; gap: 0.4rem; }
+
+.health-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.health-name { flex: 0 0 8rem; font-weight: 500; }
+.health-detail { color: var(--text-muted); font-size: 0.8rem; }
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.status-dot.status-ok { background: var(--green); }
+.status-dot.status-warn { background: var(--yellow); }
+.status-dot.status-fail { background: var(--red); }
+
+.run-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.run-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.run-item-body { flex: 1; min-width: 0; }
+.run-item-name { font-weight: 600; font-family: monospace; font-size: 0.9rem; }
+.run-item-desc { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem; }
+.run-item-cmd { margin-top: 0.3rem; }
+.run-item-cmd code {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+.run-item-meta { margin-top: 0.3rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+.commits-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.commit-row {
+  display: grid;
+  grid-template-columns: 5rem 1fr auto;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  align-items: baseline;
+}
+.commit-hash { font-family: monospace; color: var(--accent); }
+.commit-subject { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-meta { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }
+
+.tag-list { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+.run-output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.run-output-success { border-color: rgba(63, 185, 80, 0.4); }
+.run-output-error { border-color: rgba(248, 81, 73, 0.4); }
+
+.btn-icon {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 0.4rem;
+}
+.btn-icon:hover { color: var(--text); }
+
+.hidden { display: none !important; }
 
 /* --- Doctor --- */
 .doctor-summary {

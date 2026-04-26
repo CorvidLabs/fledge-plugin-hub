@@ -13,6 +13,12 @@ done
 BIN_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 
 DIR="${FLEDGE_PLUGIN_DIR:-$(cd "$BIN_DIR/.." && pwd)}"
+
+# Capture the user's original working directory before cd'ing to the
+# plugin dir — the Project page needs to inspect the project the user
+# launched fledge from, not the plugin's own files.
+export FLEDGE_HUB_CWD="${FLEDGE_HUB_CWD:-$PWD}"
+
 cd "$DIR"
 
 PORT="${FLEDGE_HUB_PORT:-3800}"

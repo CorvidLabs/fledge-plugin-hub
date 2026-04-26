@@ -1,38 +1,46 @@
 # fledge-plugin-hub
 
-Local web dashboard for browsing and managing fledge templates, plugins, lanes, and config.
+Local web dashboard for fledge — manage your install and inspect the project you're working in.
 
 ## Install as fledge plugin
 
 ```bash
 fledge plugins install CorvidLabs/fledge-plugin-hub
+cd your-project
 fledge hub
 ```
+
+Visit <http://localhost:3800>. Set `FLEDGE_HUB_PORT` to use a different port.
 
 ## Run standalone
 
 ```bash
 bun install
 bun run start
-# → http://localhost:3800
-```
-
-## Development
-
-```bash
-bun run dev
 ```
 
 ## Features
 
-- **Overview** — command tree, stats at a glance
-- **Plugins** — browse installed plugins, search for new ones
-- **Templates** — discover available project templates
-- **Lanes** — visualize workflow pipelines from fledge.toml
-- **Config** — view global fledge configuration
-- **Doctor** — run environment diagnostics
+### Project (current working directory)
+
+- Project name, version, language, branch, recent commits, working tree
+- Tasks from `fledge.toml` — one-click run with output panel
+- Lanes from `fledge.toml` — one-click run with output panel
+- Open repo in browser
+
+### Global (your fledge install)
+
+- **Store** — browse plugins and templates from GitHub, install / update / remove from the UI
+- **Installed** — manage installed plugins, see all available commands
+- **Lanes** — global lane catalog
+- **Config** — global fledge configuration
+- **Doctor** — environment diagnostics with structured pass/warn/fail view
 
 ## Requirements
 
 - [Bun](https://bun.sh) runtime
-- [fledge](https://github.com/CorvidLabs/fledge) CLI installed and on PATH
+- [fledge](https://github.com/CorvidLabs/fledge) CLI on PATH
+
+## Replaces
+
+This plugin supersedes [`fledge-plugin-dashboard`](https://github.com/CorvidLabs/fledge-dashboard) (project view) by combining its project-scoped surface with global plugin / template management.
