@@ -1,13 +1,21 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-async function api(path) {
+async function api(path, opts) {
   try {
-    const res = await fetch(`/api${path}`);
+    const res = await fetch(`/api${path}`, opts);
     return await res.json();
   } catch (e) {
     return { error: e.message };
   }
+}
+
+async function postJSON(path, body) {
+  return api(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
 }
 
 function navigate(page) {
@@ -29,18 +37,21 @@ function renderEmpty(msg) {
 }
 
 function escape(s) {
-  if (!s) return "";
+  if (s == null) return "";
   const d = document.createElement("div");
-  d.textContent = s;
+  d.textContent = String(s);
   return d.innerHTML;
 }
 
-function trustBadge(source) {
+function trustBadge(source, tier) {
+  const t = (tier || "").toLowerCase();
+  if (t === "official") return '<span class="badge badge-official">official</span>';
+  if (t === "team") return '<span class="badge badge-team">team</span>';
+  if (t === "unverified") return '<span class="badge badge-unverified">community</span>';
   if (!source) return "";
-  const lower = source.toLowerCase();
-  if (lower.startsWith("corvidlabs/"))
-    return '<span class="badge badge-official">official</span>';
-  return '<span class="badge badge-unverified">community</span>';
+  return source.toLowerCase().startsWith("corvidlabs/")
+    ? '<span class="badge badge-official">official</span>'
+    : '<span class="badge badge-unverified">community</span>';
 }
 
 function typeBadge(topics) {
@@ -53,6 +64,7 @@ function typeBadge(topics) {
 }
 
 function timeAgo(dateStr) {
+  if (!dateStr) return "";
   const diff = Date.now() - new Date(dateStr).getTime();
   const days = Math.floor(diff / 86400000);
   if (days < 1) return "today";
@@ -64,48 +76,147 @@ function timeAgo(dateStr) {
   return `${Math.floor(months / 12)}y ago`;
 }
 
-function showInstallPopup(fullName) {
-  let popup = $("#install-popup");
-  if (!popup) {
-    popup = document.createElement("div");
-    popup.id = "install-popup";
-    popup.className = "install-popup";
-    document.body.appendChild(popup);
+// --- Toast ---
+let toastTimer = null;
+function showToast(message, kind = "info", durationMs = 3500) {
+  let toast = $("#toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "toast";
+    toast.className = "toast";
+    document.body.appendChild(toast);
   }
-  const cmd = `fledge plugins install ${fullName}`;
-  popup.innerHTML = `
-    <code>${escape(cmd)}</code>
-    <button class="btn btn-sm" onclick="copyCmd('${escape(cmd)}')">Copy</button>
-    <button class="btn btn-sm btn-outline" onclick="this.parentElement.classList.add('hidden')">Dismiss</button>
-  `;
-  popup.classList.remove("hidden");
-  setTimeout(() => popup.classList.add("hidden"), 8000);
+  toast.className = `toast toast-${kind}`;
+  toast.textContent = message;
+  toast.classList.remove("hidden");
+  if (toastTimer) clearTimeout(toastTimer);
+  if (durationMs > 0) {
+    toastTimer = setTimeout(() => toast.classList.add("hidden"), durationMs);
+  }
 }
 
-function copyCmd(text) {
-  navigator.clipboard.writeText(text).then(() => {
-    const popup = $("#install-popup");
-    if (popup) {
-      popup.querySelector(".btn").textContent = "Copied!";
-      setTimeout(() => popup.classList.add("hidden"), 1500);
-    }
-  });
+function hideToast() {
+  $("#toast")?.classList.add("hidden");
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+}
+
+// --- Installed plugins state ---
+// Map: lowercased "owner/repo" → installed plugin object (from `fledge plugins list`).
+let installedBySource = new Map();
+// Map: plugin name → installed plugin object
+let installedByName = new Map();
+
+async function refreshInstalled() {
+  const list = await api("/plugins");
+  const plugins = Array.isArray(list) ? list : [];
+  installedBySource = new Map();
+  installedByName = new Map();
+  for (const p of plugins) {
+    if (p?.source) installedBySource.set(p.source.toLowerCase(), p);
+    if (p?.name) installedByName.set(p.name, p);
+  }
+  return plugins;
+}
+
+function isInstalled(repoFullName) {
+  return installedBySource.has(String(repoFullName || "").toLowerCase());
+}
+
+// --- Actions ---
+async function installRepo(fullName, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Installing…"; }
+  showToast(`Installing ${fullName}…`, "info", 0);
+  const result = await postJSON("/plugins/install", { source: fullName });
+  if (result?.success) {
+    showToast(`Installed ${fullName}`, "success");
+    await refreshInstalled();
+    invalidatePages(["installed", "store"]);
+    refreshActivePage();
+  } else {
+    showToast(`Install failed: ${truncate(result?.error || "unknown error", 200)}`, "error", 6000);
+    if (btn) { btn.disabled = false; btn.textContent = "Install"; }
+  }
+}
+
+async function removePlugin(name, btn) {
+  if (!confirm(`Remove ${name}?`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = "Removing…"; }
+  showToast(`Removing ${name}…`, "info", 0);
+  const result = await postJSON("/plugins/remove", { name });
+  if (result?.success) {
+    showToast(`Removed ${name}`, "success");
+    await refreshInstalled();
+    invalidatePages(["installed", "store"]);
+    refreshActivePage();
+  } else {
+    showToast(`Remove failed: ${truncate(result?.error || "unknown error", 200)}`, "error", 6000);
+    if (btn) { btn.disabled = false; btn.textContent = "Remove"; }
+  }
+}
+
+async function updatePlugin(name, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Updating…"; }
+  showToast(`Updating ${name}…`, "info", 0);
+  const result = await postJSON("/plugins/update", { name });
+  if (result?.success) {
+    showToast(`Updated ${name}`, "success");
+    await refreshInstalled();
+    invalidatePages(["installed", "store"]);
+    refreshActivePage();
+  } else {
+    showToast(`Update failed: ${truncate(result?.error || "unknown error", 200)}`, "error", 6000);
+    if (btn) { btn.disabled = false; btn.textContent = "Update"; }
+  }
+}
+
+function truncate(s, n) {
+  s = String(s ?? "");
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+function invalidatePages(names) {
+  for (const n of names) loaded[n] = false;
+}
+
+function refreshActivePage() {
+  const active = $(".page.active");
+  if (!active) return;
+  const id = active.id.replace("page-", "");
+  loaders[id]?.();
 }
 
 function renderStoreCard(repo) {
   const owner = escape(repo.owner?.login || "");
-  const isOfficial = owner.toLowerCase() === "corvidlabs";
+  const isOfficial = (repo.owner?.login || "").toLowerCase() === "corvidlabs";
   const topics = (repo.topics || []).slice(0, 5);
+  const installed = isInstalled(repo.full_name);
+  const fullEsc = escape(repo.full_name || "");
+  const installedPlugin = installedBySource.get((repo.full_name || "").toLowerCase());
+
+  const actions = installed
+    ? `
+        <button class="btn btn-sm btn-outline" data-action="readme" data-owner="${escape(repo.owner?.login)}" data-repo="${escape(repo.name)}">README</button>
+        <button class="btn btn-sm btn-outline" data-action="update" data-name="${escape(installedPlugin?.name || repo.name)}">Update</button>
+        <button class="btn btn-sm btn-danger" data-action="remove" data-name="${escape(installedPlugin?.name || repo.name)}">Remove</button>
+      `
+    : `
+        <button class="btn btn-sm btn-outline" data-action="readme" data-owner="${escape(repo.owner?.login)}" data-repo="${escape(repo.name)}">README</button>
+        <button class="btn btn-sm" data-action="install" data-source="${fullEsc}">Install</button>
+      `;
 
   return `
-    <div class="store-card">
+    <div class="store-card${installed ? " store-card-installed" : ""}">
       <div class="store-card-header">
         <img class="store-card-avatar" src="${escape(repo.owner?.avatar_url || "")}" alt="${owner}" loading="lazy">
         <div class="store-card-title">
           <div class="store-card-name">
             <a href="${escape(repo.html_url)}" target="_blank" rel="noopener">${escape(repo.name)}</a>
           </div>
-          <div class="store-card-author">${owner} ${isOfficial ? '<span class="badge badge-official">official</span>' : ""}</div>
+          <div class="store-card-author">
+            ${owner}
+            ${isOfficial ? '<span class="badge badge-official">official</span>' : ""}
+            ${installed ? '<span class="badge badge-installed">installed</span>' : ""}
+          </div>
         </div>
       </div>
       <div class="store-card-desc">${escape(repo.description || "No description")}</div>
@@ -120,8 +231,7 @@ function renderStoreCard(repo) {
           <span class="store-card-stat">${timeAgo(repo.updated_at)}</span>
         </div>
         <div class="store-card-actions">
-          <button class="btn btn-sm btn-outline" onclick="showReadme('${escape(repo.owner?.login)}', '${escape(repo.name)}')">README</button>
-          <button class="btn btn-sm" onclick="showInstallPopup('${escape(repo.full_name)}')">Install</button>
+          ${actions}
         </div>
       </div>
     </div>
@@ -148,6 +258,8 @@ const loaders = {
   async store() {
     const grid = $("#store-grid");
     html(grid, '<div class="loading">Loading packages from GitHub...</div>');
+    // Always refresh installed list so the badges are current.
+    await refreshInstalled();
     const params = new URLSearchParams({ category: currentCategory });
     if (currentSearch) params.set("q", currentSearch);
     const data = await api(`/github/browse?${params}`);
@@ -167,7 +279,7 @@ const loaders = {
     if (loaded.installed) return;
     const [info, plugins, templates] = await Promise.all([
       api("/introspect"),
-      api("/plugins"),
+      refreshInstalled(),
       api("/templates"),
     ]);
 
@@ -193,11 +305,15 @@ const loaders = {
       html(pluginsList, pluginList.map((p) => `
         <div class="item-card">
           <div class="item-name">${escape(p.name)}</div>
-          <div class="item-desc">${escape(p.description || "")}</div>
+          <div class="item-desc">${escape(p.source || "")}</div>
           <div class="item-meta">
-            ${trustBadge(p.source)}
+            ${trustBadge(p.source, p.trust_tier)}
             ${p.version ? `<span class="badge badge-version">v${escape(p.version)}</span>` : ""}
             ${(p.commands || []).map((c) => `<span class="badge badge-command">${escape(c)}</span>`).join("")}
+          </div>
+          <div class="item-actions">
+            <button class="btn btn-sm btn-outline" data-action="update" data-name="${escape(p.name)}">Update</button>
+            <button class="btn btn-sm btn-danger" data-action="remove" data-name="${escape(p.name)}">Remove</button>
           </div>
         </div>
       `).join(""));
@@ -296,11 +412,86 @@ const loaders = {
   },
 
   async doctor() {
+    const wrap = $("#doctor-output");
+    html(wrap, '<div class="loading">Running doctor…</div>');
     const data = await api("/doctor");
-    const output = $("#doctor-output");
-    output.textContent = data?.output || data?.error || "No output";
+    if (data?.error) {
+      html(wrap, renderError(typeof data.error === "string" ? data.error : JSON.stringify(data.error)));
+      return;
+    }
+    const report = data?.report;
+    if (!report || !Array.isArray(report.sections)) {
+      const raw = data?.raw || JSON.stringify(data, null, 2);
+      html(wrap, `<pre class="terminal-output">${escape(raw)}</pre>`);
+      return;
+    }
+    html(wrap, renderDoctor(report));
   },
 };
+
+function statusBadge(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "ok" || s === "pass") return `<span class="status-pill status-ok">OK</span>`;
+  if (s === "warn" || s === "warning") return `<span class="status-pill status-warn">WARN</span>`;
+  if (s === "fail" || s === "error") return `<span class="status-pill status-fail">FAIL</span>`;
+  if (s === "skip" || s === "skipped") return `<span class="status-pill status-skip">SKIP</span>`;
+  return `<span class="status-pill">${escape(status || "?")}</span>`;
+}
+
+function renderDoctor(report) {
+  const passed = Number(report.passed ?? 0);
+  const failed = Number(report.failed ?? 0);
+  const summary = `
+    <div class="doctor-summary">
+      <div class="doctor-summary-item doctor-summary-ok">
+        <div class="doctor-summary-value">${passed}</div>
+        <div class="doctor-summary-label">passed</div>
+      </div>
+      <div class="doctor-summary-item ${failed > 0 ? "doctor-summary-fail" : ""}">
+        <div class="doctor-summary-value">${failed}</div>
+        <div class="doctor-summary-label">failed</div>
+      </div>
+    </div>
+  `;
+  const sections = (report.sections || []).map((sec) => {
+    const checks = (sec.checks || []).map((chk) => `
+      <div class="doctor-check">
+        <div class="doctor-check-status">${statusBadge(chk.status)}</div>
+        <div class="doctor-check-body">
+          <div class="doctor-check-name">
+            ${escape(chk.name)}
+            ${chk.version ? `<span class="badge badge-version">${escape(chk.version)}</span>` : ""}
+          </div>
+          ${chk.detail ? `<div class="doctor-check-detail">${escape(chk.detail)}</div>` : ""}
+          ${chk.fix ? `<div class="doctor-check-fix"><strong>Fix:</strong> ${escape(chk.fix)}</div>` : ""}
+        </div>
+      </div>
+    `).join("");
+    return `
+      <div class="doctor-section">
+        <h3 class="doctor-section-name">${escape(sec.name)}</h3>
+        <div class="doctor-checks">${checks}</div>
+      </div>
+    `;
+  }).join("");
+  return `${summary}${sections}`;
+}
+
+// --- Event delegation for action buttons ---
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const action = btn.dataset.action;
+  if (action === "install") {
+    installRepo(btn.dataset.source, btn);
+  } else if (action === "remove") {
+    removePlugin(btn.dataset.name, btn);
+  } else if (action === "update") {
+    updatePlugin(btn.dataset.name, btn);
+  } else if (action === "readme") {
+    showReadme(btn.dataset.owner, btn.dataset.repo);
+  }
+});
 
 // Nav links
 $$(".nav-link").forEach((link) => {

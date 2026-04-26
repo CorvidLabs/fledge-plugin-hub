@@ -20,6 +20,46 @@ api.get("/plugins/search", async (c) => {
   return c.json(result);
 });
 
+api.post("/plugins/install", async (c) => {
+  const body = await c.req.json<{ source?: string; force?: boolean }>().catch(() => ({}));
+  if (!body.source) return c.json({ error: "source required" }, 400);
+  const args = ["plugins", "install", body.source, "--json"];
+  if (body.force) args.push("--force");
+  const result = await fledge(args);
+  return c.json({
+    success: result.exitCode === 0,
+    exitCode: result.exitCode,
+    output: result.stdout,
+    error: result.exitCode !== 0 ? result.stderr || result.stdout : null,
+  });
+});
+
+api.post("/plugins/remove", async (c) => {
+  const body = await c.req.json<{ name?: string }>().catch(() => ({}));
+  if (!body.name) return c.json({ error: "name required" }, 400);
+  const result = await fledge(["plugins", "remove", body.name, "--json"]);
+  return c.json({
+    success: result.exitCode === 0,
+    exitCode: result.exitCode,
+    output: result.stdout,
+    error: result.exitCode !== 0 ? result.stderr || result.stdout : null,
+  });
+});
+
+api.post("/plugins/update", async (c) => {
+  const body = await c.req.json<{ name?: string }>().catch(() => ({}));
+  const args = ["plugins", "update"];
+  if (body.name) args.push(body.name);
+  args.push("--json");
+  const result = await fledge(args);
+  return c.json({
+    success: result.exitCode === 0,
+    exitCode: result.exitCode,
+    output: result.stdout,
+    error: result.exitCode !== 0 ? result.stderr || result.stdout : null,
+  });
+});
+
 api.get("/templates", async (c) => {
   const result = await fledgeJson(["search", "--json"]);
   return c.json(result);
@@ -37,7 +77,12 @@ api.get("/config", async (c) => {
 
 api.get("/doctor", async (c) => {
   const result = await fledge(["doctor", "--json"]);
-  return c.json({ output: result.stdout, exitCode: result.exitCode });
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return c.json({ report: parsed, exitCode: result.exitCode });
+  } catch {
+    return c.json({ raw: result.stdout, exitCode: result.exitCode });
+  }
 });
 
 api.get("/info", async (c) => {

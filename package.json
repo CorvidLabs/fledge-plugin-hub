@@ -1,6 +1,6 @@
 {
   "name": "fledge-plugin-hub",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Local web dashboard for browsing and managing fledge templates, plugins, lanes, and config",
   "type": "module",
   "scripts": {
