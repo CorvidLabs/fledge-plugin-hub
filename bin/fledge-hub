@@ -4,7 +4,7 @@ set -euo pipefail
 DIR="${FLEDGE_PLUGIN_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$DIR"
 
-PORT="${FLEDGE_HUB_PORT:-3000}"
+PORT="${FLEDGE_HUB_PORT:-3800}"
 export PORT
 
 echo "Starting fledge hub on http://localhost:${PORT}"

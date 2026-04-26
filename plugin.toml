@@ -6,7 +6,7 @@ author = "CorvidLabs"
 
 [[commands]]
 name = "hub"
-description = "Start the fledge hub dashboard on localhost:3000"
+description = "Start the fledge hub dashboard on localhost:3800"
 binary = "bin/fledge-hub"
 
 [hooks]
