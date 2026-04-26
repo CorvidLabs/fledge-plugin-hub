@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DIR="${FLEDGE_PLUGIN_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+cd "$DIR"
+
+PORT="${FLEDGE_HUB_PORT:-3000}"
+export PORT
+
+echo "Starting fledge hub on http://localhost:${PORT}"
+exec bun run src/server.ts

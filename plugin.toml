@@ -1,0 +1,14 @@
+[plugin]
+name = "fledge-plugin-hub"
+version = "0.1.0"
+description = "Local web dashboard for browsing and managing fledge templates, plugins, lanes, and config"
+author = "CorvidLabs"
+
+[[commands]]
+name = "hub"
+description = "Start the fledge hub dashboard on localhost:3000"
+binary = "bin/fledge-hub"
+
+[hooks]
+build = "bun install"
+post_install = "bun install"

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>fledge hub</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <div class="logo">
+      <span class="logo-icon">🪶</span>
+      <span class="logo-text">fledge hub</span>
+    </div>
+    <ul class="nav-links">
+      <li><a href="#" class="nav-link active" data-page="overview">Overview</a></li>
+      <li><a href="#" class="nav-link" data-page="plugins">Plugins</a></li>
+      <li><a href="#" class="nav-link" data-page="templates">Templates</a></li>
+      <li><a href="#" class="nav-link" data-page="lanes">Lanes</a></li>
+      <li><a href="#" class="nav-link" data-page="config">Config</a></li>
+      <li><a href="#" class="nav-link" data-page="doctor">Doctor</a></li>
+    </ul>
+    <div class="sidebar-footer">
+      <span class="version" id="fledge-version">loading...</span>
+    </div>
+  </nav>
+
+  <main class="content">
+    <div id="page-overview" class="page active">
+      <h1>Overview</h1>
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="card">
+        <h2>Commands</h2>
+        <div id="command-tree" class="command-tree"></div>
+      </div>
+    </div>
+
+    <div id="page-plugins" class="page">
+      <h1>Plugins</h1>
+      <div class="toolbar">
+        <input type="text" id="plugin-search" placeholder="Search available plugins..." class="search-input">
+        <button id="plugin-search-btn" class="btn">Search</button>
+      </div>
+      <div class="card">
+        <h2>Installed</h2>
+        <div id="plugins-list" class="item-grid"></div>
+      </div>
+      <div class="card" id="plugin-search-results-card" style="display:none">
+        <h2>Search Results</h2>
+        <div id="plugin-search-results" class="item-grid"></div>
+      </div>
+    </div>
+
+    <div id="page-templates" class="page">
+      <h1>Templates</h1>
+      <div id="templates-list" class="item-grid"></div>
+    </div>
+
+    <div id="page-lanes" class="page">
+      <h1>Lanes</h1>
+      <div id="lanes-list" class="lanes-list"></div>
+    </div>
+
+    <div id="page-config" class="page">
+      <h1>Config</h1>
+      <div id="config-list" class="config-list"></div>
+    </div>
+
+    <div id="page-doctor" class="page">
+      <h1>Doctor</h1>
+      <div class="card">
+        <pre id="doctor-output" class="terminal-output"></pre>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
