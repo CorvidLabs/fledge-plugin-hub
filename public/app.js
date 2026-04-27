@@ -267,7 +267,7 @@ function renderProject(info) {
   const headerHtml = `
     <div class="project-header">
       <div class="project-header-main">
-        <div class="project-header-kicker"><span>§ 01 · Project</span></div>
+        <div class="project-header-kicker"><span>01 / Project</span></div>
         <h1>${escape(info.name || "Untitled")}</h1>
         <div class="project-header-meta">
           ${info.version ? `<span class="badge badge-version">v${escape(info.version)}</span>` : ""}
