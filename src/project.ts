@@ -154,8 +154,18 @@ export async function gatherProjectInfo(): Promise<ProjectInfo> {
   if (hasFledgeToml) {
     const taskListing = await fledgeJson(["run", "--list", "--json"], { cwd }) as { tasks?: ProjectTask[] };
     tasks = Array.isArray(taskListing?.tasks) ? taskListing.tasks : [];
-    const laneListing = await fledgeJson(["lanes", "list", "--json"], { cwd });
-    if (Array.isArray(laneListing)) lanes = laneListing as ProjectLane[];
+    type RawLane = ProjectLane & { step_count?: number };
+    const laneListing = await fledgeJson(["lanes", "list", "--json"], { cwd }) as
+      | { lanes?: RawLane[] }
+      | RawLane[]
+      | null;
+    const rawLanes: RawLane[] = Array.isArray(laneListing)
+      ? laneListing
+      : laneListing && Array.isArray(laneListing.lanes)
+        ? laneListing.lanes
+        : [];
+    // Fledge 1.0 renamed the count field from `steps` → `step_count`.
+    lanes = rawLanes.map((l) => ({ ...l, steps: l.steps ?? l.step_count }));
   }
 
   const fromFledge = readFledgeProject(cwd);

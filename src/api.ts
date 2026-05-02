@@ -1,9 +1,42 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Hono } from "hono";
 import { fledge, fledgeJson, projectCwd } from "./fledge";
 import { browseAll, browsePlugins, browseTemplates, getRepoReadme } from "./github";
 import { gatherProjectInfo, openInBrowser } from "./project";
+import { parseConfigList } from "./config";
+
+const HUB_VERSION: string = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "";
+  } catch {
+    return "";
+  }
+})();
 
 export const api = new Hono();
+
+// Fledge 1.0 wraps list-style JSON responses in an envelope:
+//   plugins list  -> { plugins: [...] }
+//   lanes list    -> { lanes: [...] }
+//   plugins search / templates search -> { results: [...] }
+// Unwrap the envelope so the frontend sees a plain array.
+function unwrap<T>(value: unknown, key: string): T[] | unknown {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    if (Array.isArray(obj[key])) return obj[key] as T[];
+    if ("error" in obj) return value;
+  }
+  return value;
+}
+
+function isEmptyLaneError(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const err = (value as { error?: unknown }).error;
+  if (typeof err !== "string") return false;
+  return err.includes("No fledge.toml") || err.includes("No lanes defined");
+}
 
 api.get("/project", async (c) => {
   const info = await gatherProjectInfo();
@@ -51,24 +84,30 @@ api.post("/project/open-repo", async (c) => {
 
 api.get("/introspect", async (c) => {
   const result = await fledgeJson(["introspect", "--json"]);
+  // Frontend expects an array of top-level commands.
+  if (result && typeof result === "object" && Array.isArray((result as { subcommands?: unknown }).subcommands)) {
+    return c.json((result as { subcommands: unknown[] }).subcommands);
+  }
   return c.json(result);
 });
 
 api.get("/plugins", async (c) => {
   const result = await fledgeJson(["plugins", "list", "--json"]);
-  return c.json(result);
+  return c.json(unwrap(result, "plugins"));
 });
 
 api.get("/plugins/search", async (c) => {
   const query = c.req.query("q") || "";
   const result = await fledgeJson(["plugins", "search", query, "--json"]);
-  return c.json(result);
+  return c.json(unwrap(result, "results"));
 });
 
 api.post("/plugins/install", async (c) => {
   const body = await c.req.json<{ source?: string; force?: boolean }>().catch(() => ({}));
   if (!body.source) return c.json({ error: "source required" }, 400);
-  const args = ["plugins", "install", body.source, "--json"];
+  // --yes is required because FLEDGE_NON_INTERACTIVE is set in the env and
+  // install would otherwise bail on the trust-prompt.
+  const args = ["plugins", "install", body.source, "--yes", "--json"];
   if (body.force) args.push("--force");
   const result = await fledge(args);
   return c.json({
@@ -106,18 +145,28 @@ api.post("/plugins/update", async (c) => {
 });
 
 api.get("/templates", async (c) => {
-  const result = await fledgeJson(["search", "--json"]);
-  return c.json(result);
+  // Fledge 1.0 moved this under `templates search` and there is no longer a
+  // top-level `fledge search` command. See `fledge templates --help`.
+  const result = await fledgeJson(["templates", "search", "--json"]);
+  return c.json(unwrap(result, "results"));
 });
 
 api.get("/lanes", async (c) => {
-  const result = await fledgeJson(["lanes", "list", "--json"]);
-  return c.json(result);
+  // Lanes are project-scoped (declared in fledge.toml). Run in the project
+  // cwd so a user launching `fledge hub` from a project sees their lanes.
+  const cwd = projectCwd();
+  const result = await fledgeJson(["lanes", "list", "--json"], { cwd });
+  if (isEmptyLaneError(result)) return c.json([]);
+  return c.json(unwrap(result, "lanes"));
 });
 
 api.get("/config", async (c) => {
-  const result = await fledgeJson(["config", "list", "--json"]);
-  return c.json(result);
+  // `fledge config list` does not accept --json in 1.0 — parse the table form.
+  const result = await fledge(["config", "list"]);
+  if (result.exitCode !== 0) {
+    return c.json({ error: result.stderr || result.stdout, exitCode: result.exitCode });
+  }
+  return c.json(parseConfigList(result.stdout));
 });
 
 api.get("/doctor", async (c) => {
@@ -133,9 +182,13 @@ api.get("/doctor", async (c) => {
 api.get("/info", async (c) => {
   const result = await fledgeJson(["introspect", "--json"]);
   const version = await fledge(["--version"]);
+  const commands = result && typeof result === "object" && Array.isArray((result as { subcommands?: unknown }).subcommands)
+    ? (result as { subcommands: unknown[] }).subcommands
+    : [];
   return c.json({
     version: version.stdout.trim(),
-    commands: result,
+    hubVersion: HUB_VERSION,
+    commands,
   });
 });
 

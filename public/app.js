@@ -559,25 +559,25 @@ const loaders = {
       return;
     }
 
-    const lanes = Array.isArray(data)
-      ? data
-      : typeof data === "object"
-        ? Object.entries(data).map(([name, steps]) => ({ name, steps }))
-        : [];
+    const lanes = Array.isArray(data) ? data : [];
 
     if (lanes.length === 0) {
       html(list, renderEmpty('No lanes defined. Add lanes to your <code>fledge.toml</code>'));
     } else {
-      html(list, lanes.map((l) => `
-        <div class="lane-card">
-          <div class="lane-name">${escape(l.name)}</div>
-          <div class="lane-steps">
-            ${(Array.isArray(l.steps) ? l.steps : [])
-              .map((s, i) => `${i > 0 ? '<span class="lane-step-arrow">&rarr;</span>' : ""}<span class="lane-step">${escape(typeof s === "string" ? s : s.name || JSON.stringify(s))}</span>`)
-              .join("")}
+      html(list, lanes.map((l) => {
+        const stepCount = typeof l.step_count === "number" ? l.step_count : (typeof l.steps === "number" ? l.steps : null);
+        return `
+          <div class="lane-card">
+            <div class="lane-name">${escape(l.name)}</div>
+            ${l.description ? `<div class="lane-desc">${escape(l.description)}</div>` : ""}
+            <div class="lane-meta">
+              ${stepCount != null ? `<span class="badge badge-version">${stepCount} step${stepCount === 1 ? "" : "s"}</span>` : ""}
+              ${l.fail_fast ? `<span class="badge badge-team">fail-fast</span>` : ""}
+              ${l.trust_tier ? `<span class="badge badge-command">${escape(l.trust_tier)}</span>` : ""}
+            </div>
           </div>
-        </div>
-      `).join(""));
+        `;
+      }).join(""));
     }
 
     loaded.lanes = true;
@@ -593,17 +593,30 @@ const loaders = {
       return;
     }
 
-    const entries = typeof data === "object" && !Array.isArray(data) ? Object.entries(data) : [];
+    const sections = Array.isArray(data?.sections) ? data.sections : [];
+    const total = sections.reduce((n, s) => n + (s.entries?.length || 0), 0);
 
-    if (entries.length === 0) {
+    if (total === 0) {
       html(list, renderEmpty("No config entries found"));
     } else {
-      html(list, entries.map(([k, v]) => `
-        <div class="config-entry">
-          <span class="config-key">${escape(k)}</span>
-          <span class="config-value">${escape(typeof v === "string" ? v : JSON.stringify(v))}</span>
+      const path = data?.path
+        ? `<div class="config-path">${escape(data.path)}</div>`
+        : "";
+      const sectionsHtml = sections.map((s) => `
+        <div class="config-section">
+          <h3 class="config-section-name">${escape(s.name)}</h3>
+          <div class="config-entries">
+            ${(s.entries || []).map((e) => `
+              <div class="config-entry${e.unset ? " config-entry-unset" : ""}">
+                <span class="config-key">${escape(e.key)}</span>
+                <span class="config-value">${escape(e.value)}</span>
+                ${e.help ? `<span class="config-help">${escape(e.help)}</span>` : ""}
+              </div>
+            `).join("")}
+          </div>
         </div>
-      `).join(""));
+      `).join("");
+      html(list, `${path}${sectionsHtml}`);
     }
 
     loaded.config = true;
@@ -754,6 +767,9 @@ $(".modal-close")?.addEventListener("click", () => {
   const info = await api("/info");
   if (info?.version) {
     $("#fledge-version").textContent = info.version;
+  }
+  if (info?.hubVersion) {
+    $("#hub-version").textContent = `v${info.hubVersion}`;
   }
   navigate("project");
 })();
