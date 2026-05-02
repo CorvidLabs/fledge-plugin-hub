@@ -845,6 +845,13 @@ h3 {
 }
 
 .lane-steps { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+.lane-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-top: 0.55rem; }
+.lane-desc {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  margin-bottom: 0.55rem;
+  line-height: 1.5;
+}
 
 .lane-step {
   font-family: var(--font-mono);
@@ -866,23 +873,59 @@ h3 {
 
 /* ============== CONFIG ============== */
 
+.config-path {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  margin-bottom: 0.4rem;
+}
+
+.config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 0.4rem;
+}
+
+.config-section-name {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: 0.04em;
+  margin: 0;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.config-entries { display: flex; flex-direction: column; gap: 0.4rem; }
+
 .config-entry {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.7rem 1rem;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
   align-items: baseline;
-  gap: 1rem;
+  gap: 0.4rem 1rem;
   font-family: var(--font-mono);
   font-size: 0.78rem;
   transition: border-color var(--transition-base);
 }
 .config-entry:hover { border-color: var(--border-bright); }
+.config-entry-unset { opacity: 0.6; }
 
 .config-key { font-weight: 600; color: var(--text-primary); letter-spacing: 0.02em; }
 .config-value { color: var(--text-secondary); text-align: right; word-break: break-all; }
+.config-help {
+  grid-column: 1 / -1;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
 
 /* ============== TERMINAL OUTPUT ============== */
 
