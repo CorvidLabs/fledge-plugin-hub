@@ -44,7 +44,7 @@ api.get("/project", async (c) => {
 });
 
 api.post("/project/run-task", async (c) => {
-  const body = await c.req.json<{ task?: string }>().catch(() => ({}));
+  const body: { task?: string } = await c.req.json<{ task?: string }>().catch(() => ({}));
   const task = body.task;
   if (!task || !/^[A-Za-z0-9_-]+$/.test(task)) {
     return c.json({ error: "invalid task name" }, 400);
@@ -60,7 +60,7 @@ api.post("/project/run-task", async (c) => {
 });
 
 api.post("/project/run-lane", async (c) => {
-  const body = await c.req.json<{ lane?: string }>().catch(() => ({}));
+  const body: { lane?: string } = await c.req.json<{ lane?: string }>().catch(() => ({}));
   const lane = body.lane;
   if (!lane || !/^[A-Za-z0-9_-]+$/.test(lane)) {
     return c.json({ error: "invalid lane name" }, 400);
@@ -103,7 +103,10 @@ api.get("/plugins/search", async (c) => {
 });
 
 api.post("/plugins/install", async (c) => {
-  const body = await c.req.json<{ source?: string; force?: boolean }>().catch(() => ({}));
+  const body: { source?: string; force?: boolean } = await c
+    .req
+    .json<{ source?: string; force?: boolean }>()
+    .catch(() => ({}));
   if (!body.source) return c.json({ error: "source required" }, 400);
   // --yes is required because FLEDGE_NON_INTERACTIVE is set in the env and
   // install would otherwise bail on the trust-prompt.
@@ -119,7 +122,7 @@ api.post("/plugins/install", async (c) => {
 });
 
 api.post("/plugins/remove", async (c) => {
-  const body = await c.req.json<{ name?: string }>().catch(() => ({}));
+  const body: { name?: string } = await c.req.json<{ name?: string }>().catch(() => ({}));
   if (!body.name) return c.json({ error: "name required" }, 400);
   const result = await fledge(["plugins", "remove", body.name, "--json"]);
   return c.json({
@@ -131,7 +134,7 @@ api.post("/plugins/remove", async (c) => {
 });
 
 api.post("/plugins/update", async (c) => {
-  const body = await c.req.json<{ name?: string }>().catch(() => ({}));
+  const body: { name?: string } = await c.req.json<{ name?: string }>().catch(() => ({}));
   const args = ["plugins", "update"];
   if (body.name) args.push(body.name);
   args.push("--json");
