@@ -4,32 +4,31 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>fledge hub</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2318181B'/><text x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='18'>F</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <nav class="sidebar">
     <div class="logo">
-      <span class="logo-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 21c4-2 8-6 12-12 2-3 4-5 6-6-1 5-3 9-7 13-3 3-7 5-11 5z"/>
-          <path d="M5 19l8-8"/>
-        </svg>
-      </span>
-      <span class="logo-text">
+      <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 21c4-2 8-6 12-12 2-3 4-5 6-6-1 5-3 9-7 13-3 3-7 5-11 5z"/>
+        <path d="M5 19l8-8"/>
+      </svg>
+      <div class="logo-text">
         <span class="logo-name">fledge</span>
         <span class="logo-sub">hub</span>
-      </span>
+      </div>
     </div>
-    <ul class="nav-links">
-      <li class="nav-section"><span class="nav-section-num">01</span><span>Project</span></li>
+    <ul class="nav">
+      <li class="nav-label">Project</li>
       <li><a href="#" class="nav-link active" data-page="project">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M2 6h12M6 6v8"/></svg>
         Overview
       </a></li>
-      <li class="nav-section"><span class="nav-section-num">02</span><span>Global</span></li>
+      <li class="nav-label">Global</li>
       <li><a href="#" class="nav-link" data-page="store">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 4l6-2 6 2v8l-6 2-6-2z"/><path d="M8 6v8M2 4l6 2 6-2"/></svg>
         Store
@@ -52,18 +51,12 @@
       </a></li>
     </ul>
     <div class="sidebar-footer">
-      <div class="sidebar-meta">
-        <span class="meta-key">FLEDGE</span>
-        <span class="meta-val" id="fledge-version">...</span>
-      </div>
-      <div class="sidebar-meta">
-        <span class="meta-key">HUB</span>
-        <span class="meta-val" id="hub-version">…</span>
-      </div>
+      <span>FLEDGE <span id="fledge-version">...</span></span>
+      <span>HUB <span id="hub-version">...</span></span>
     </div>
   </nav>
 
-  <main class="content">
+  <main class="main">
     <!-- Project overview -->
     <div id="page-project" class="page active">
       <div id="project-header"></div>
@@ -73,12 +66,12 @@
     <!-- Store / Browse -->
     <div id="page-store" class="page">
       <header class="page-head">
-        <div class="page-kicker">02 / Global</div>
+        <div class="page-kicker">Store</div>
         <h1 class="page-title">Browse Packages</h1>
-        <p class="page-lede">Discover plugins and templates from the fledge ecosystem on GitHub.</p>
+        <p class="page-lede">Discover plugins and templates from the fledge ecosystem.</p>
       </header>
       <div class="toolbar">
-        <input type="text" id="store-search" placeholder="Search fledge plugins and templates..." class="search-input">
+        <input type="text" id="store-search" placeholder="Search plugins and templates..." class="search-input">
         <button id="store-search-btn" class="btn">Search</button>
       </div>
       <div class="category-tabs">
@@ -87,16 +80,16 @@
         <button class="tab" data-category="templates">Templates</button>
       </div>
       <div id="store-grid" class="store-grid">
-        <div class="loading">Loading packages from GitHub...</div>
+        <div class="loading">Loading packages from GitHub</div>
       </div>
     </div>
 
     <!-- Installed -->
     <div id="page-installed" class="page">
       <header class="page-head">
-        <div class="page-kicker">02 / Global</div>
+        <div class="page-kicker">Installed</div>
         <h1 class="page-title">Installed</h1>
-        <p class="page-lede">Plugins, templates, and commands available on this machine.</p>
+        <p class="page-lede">Plugins, templates, and commands on this machine.</p>
       </header>
       <div class="stats-grid" id="stats-grid"></div>
       <div class="section-tabs">
@@ -118,9 +111,9 @@
     <!-- Lanes -->
     <div id="page-lanes" class="page">
       <header class="page-head">
-        <div class="page-kicker">02 / Global</div>
+        <div class="page-kicker">Lanes</div>
         <h1 class="page-title">Lanes</h1>
-        <p class="page-lede">Composable workflow pipelines defined across your fledge configuration.</p>
+        <p class="page-lede">Composable workflow pipelines from your fledge configuration.</p>
       </header>
       <div id="lanes-list" class="lanes-list"></div>
     </div>
@@ -128,7 +121,7 @@
     <!-- Config -->
     <div id="page-config" class="page">
       <header class="page-head">
-        <div class="page-kicker">02 / Global</div>
+        <div class="page-kicker">Config</div>
         <h1 class="page-title">Config</h1>
         <p class="page-lede">Resolved global fledge configuration.</p>
       </header>
@@ -138,25 +131,39 @@
     <!-- Doctor -->
     <div id="page-doctor" class="page">
       <header class="page-head">
-        <div class="page-kicker">02 / Global</div>
+        <div class="page-kicker">Doctor</div>
         <h1 class="page-title">Doctor</h1>
-        <p class="page-lede">Environment diagnostics and pre-flight checks for your toolchain.</p>
+        <p class="page-lede">Environment diagnostics and pre-flight checks.</p>
       </header>
       <div id="doctor-output"></div>
     </div>
+  </main>
 
-    <!-- Readme modal -->
-    <div id="readme-modal" class="modal hidden">
-      <div class="modal-backdrop"></div>
-      <div class="modal-content card">
-        <div class="modal-header">
-          <h2 id="readme-title"></h2>
-          <button class="modal-close" aria-label="Close">&times;</button>
-        </div>
-        <div id="readme-body" class="readme-body"></div>
+  <!-- README modal -->
+  <div id="readme-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h2 id="readme-title"></h2>
+        <button class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div id="readme-body" class="readme-body"></div>
+    </div>
+  </div>
+
+  <!-- Command palette -->
+  <div id="cmd-palette" class="cmd-palette hidden">
+    <div class="cmd-palette-backdrop"></div>
+    <div class="cmd-dialog">
+      <input type="text" id="cmd-input" class="cmd-input" placeholder="Search or jump to...">
+      <div id="cmd-results" class="cmd-results"></div>
+      <div class="cmd-footer">
+        <span><kbd>&uarr;&darr;</kbd> navigate</span>
+        <span><kbd>&crarr;</kbd> select</span>
+        <span><kbd>esc</kbd> close</span>
       </div>
     </div>
-  </main>
+  </div>
 
   <script src="/app.js"></script>
 </body>

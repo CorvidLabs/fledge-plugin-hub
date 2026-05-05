@@ -1,6 +1,8 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
+// --- API ---
+
 async function api(path, opts) {
   try {
     const res = await fetch(`/api${path}`, opts);
@@ -18,15 +20,33 @@ async function postJSON(path, body) {
   });
 }
 
-function navigate(page) {
-  $$(".page").forEach((p) => p.classList.remove("active"));
-  $$(".nav-link").forEach((l) => l.classList.remove("active"));
-  $(`#page-${page}`)?.classList.add("active");
-  $(`.nav-link[data-page="${page}"]`)?.classList.add("active");
-  loaders[page]?.();
-}
+// --- Helpers ---
 
 function html(el, content) { el.innerHTML = content; }
+
+function escape(s) {
+  if (s == null) return "";
+  const d = document.createElement("div");
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function truncate(s, n) {
+  s = String(s ?? "");
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return "";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const days = Math.floor(diff / 86400000);
+  if (days < 1) return "today";
+  if (days === 1) return "1d ago";
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
 
 function renderError(msg) {
   return `<div class="error-msg">${escape(msg)}</div>`;
@@ -36,12 +56,187 @@ function renderEmpty(msg) {
   return `<div class="empty-state">${msg}</div>`;
 }
 
-function escape(s) {
-  if (s == null) return "";
-  const d = document.createElement("div");
-  d.textContent = String(s);
-  return d.innerHTML;
+// --- Markdown renderer ---
+
+function renderMarkdown(raw) {
+  if (!raw) return "";
+  let text = raw;
+
+  // Fenced code blocks
+  text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+    `<pre><code>${escape(code.trim())}</code></pre>`
+  );
+
+  // Inline code (protect from further processing)
+  const codeMap = [];
+  text = text.replace(/`([^`]+)`/g, (_, code) => {
+    const id = `\x00CODE${codeMap.length}\x00`;
+    codeMap.push(`<code>${escape(code)}</code>`);
+    return id;
+  });
+
+  // Headings
+  text = text.replace(/^####\s+(.+)$/gm, "<h4>$1</h4>");
+  text = text.replace(/^###\s+(.+)$/gm, "<h3>$1</h3>");
+  text = text.replace(/^##\s+(.+)$/gm, "<h2>$1</h2>");
+  text = text.replace(/^#\s+(.+)$/gm, "<h1>$1</h1>");
+
+  // Bold / italic
+  text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  text = text.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>");
+
+  // Links
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener">$1</a>'
+  );
+
+  // Images (render as links since we're in a modal)
+  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener">[$1]</a>'
+  );
+
+  // Horizontal rules
+  text = text.replace(/^---+$/gm, "<hr>");
+
+  // Blockquotes
+  text = text.replace(/^>\s*(.+)$/gm, "<blockquote>$1</blockquote>");
+
+  // List items
+  text = text.replace(/^[-*]\s+(.+)$/gm, "<li>$1</li>");
+
+  // Wrap consecutive <li> in <ul>
+  text = text.replace(/((?:<li>[\s\S]*?<\/li>\s*)+)/g, "<ul>$1</ul>");
+
+  // Paragraphs: split on double newlines, wrap non-block content
+  const blocks = text.split(/\n{2,}/);
+  text = blocks
+    .map((b) => {
+      b = b.trim();
+      if (!b) return "";
+      if (/^<(?:h[1-6]|pre|ul|ol|hr|blockquote|div)/.test(b)) return b;
+      return `<p>${b.replace(/\n/g, "<br>")}</p>`;
+    })
+    .join("\n");
+
+  // Restore inline code
+  codeMap.forEach((code, i) => {
+    text = text.replace(`\x00CODE${i}\x00`, code);
+  });
+
+  return text;
 }
+
+// --- Toast ---
+
+let toastTimer = null;
+
+function showToast(message, kind = "info", durationMs = 3500) {
+  let toast = $("#toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "toast";
+    document.body.appendChild(toast);
+  }
+  toast.className = `toast toast-${kind}`;
+  toast.textContent = message;
+  toast.classList.remove("hidden");
+  if (toastTimer) clearTimeout(toastTimer);
+  if (durationMs > 0) {
+    toastTimer = setTimeout(() => toast.classList.add("hidden"), durationMs);
+  }
+}
+
+// --- Installed state ---
+
+let installedBySource = new Map();
+let installedByName = new Map();
+
+async function refreshInstalled() {
+  const list = await api("/plugins");
+  const plugins = Array.isArray(list) ? list : [];
+  installedBySource = new Map();
+  installedByName = new Map();
+  for (const p of plugins) {
+    if (p?.source) installedBySource.set(p.source.toLowerCase(), p);
+    if (p?.name) installedByName.set(p.name, p);
+  }
+  return plugins;
+}
+
+function isInstalled(repoFullName) {
+  return installedBySource.has(String(repoFullName || "").toLowerCase());
+}
+
+// --- Actions ---
+
+async function installRepo(fullName, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Installing…"; }
+  showToast(`Installing ${fullName}…`, "info", 0);
+  const result = await postJSON("/plugins/install", { source: fullName });
+  if (result?.success) {
+    showToast(`Installed ${fullName}`, "success");
+    await refreshInstalled();
+    invalidatePages(["installed", "store"]);
+    refreshActivePage();
+  } else {
+    showToast(`Install failed: ${truncate(result?.error || "unknown", 200)}`, "error", 6000);
+    if (btn) { btn.disabled = false; btn.textContent = "Install"; }
+  }
+}
+
+async function removePlugin(name, btn) {
+  if (!confirm(`Remove ${name}?`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = "Removing…"; }
+  showToast(`Removing ${name}…`, "info", 0);
+  const result = await postJSON("/plugins/remove", { name });
+  if (result?.success) {
+    showToast(`Removed ${name}`, "success");
+    await refreshInstalled();
+    invalidatePages(["installed", "store"]);
+    refreshActivePage();
+  } else {
+    showToast(`Remove failed: ${truncate(result?.error || "unknown", 200)}`, "error", 6000);
+    if (btn) { btn.disabled = false; btn.textContent = "Remove"; }
+  }
+}
+
+async function updatePlugin(name, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Updating…"; }
+  showToast(`Updating ${name}…`, "info", 0);
+  const result = await postJSON("/plugins/update", { name });
+  if (result?.success) {
+    showToast(`Updated ${name}`, "success");
+    await refreshInstalled();
+    invalidatePages(["installed", "store"]);
+    refreshActivePage();
+  } else {
+    showToast(`Update failed: ${truncate(result?.error || "unknown", 200)}`, "error", 6000);
+    if (btn) { btn.disabled = false; btn.textContent = "Update"; }
+  }
+}
+
+function invalidatePages(names) {
+  for (const n of names) loaded[n] = false;
+}
+
+function refreshActivePage() {
+  const active = $(".page.active");
+  if (!active) return;
+  const id = active.id.replace("page-", "");
+  loaders[id]?.();
+}
+
+// --- Navigation ---
+
+function navigate(page) {
+  $$(".page").forEach((p) => p.classList.remove("active"));
+  $$(".nav-link").forEach((l) => l.classList.remove("active"));
+  $(`#page-${page}`)?.classList.add("active");
+  $(`.nav-link[data-page="${page}"]`)?.classList.add("active");
+  loaders[page]?.();
+}
+
+// --- Badges ---
 
 function trustBadge(source, tier) {
   const t = (tier || "").toLowerCase();
@@ -63,127 +258,22 @@ function typeBadge(topics) {
   return "";
 }
 
-function timeAgo(dateStr) {
-  if (!dateStr) return "";
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const days = Math.floor(diff / 86400000);
-  if (days < 1) return "today";
-  if (days === 1) return "1 day ago";
-  if (days < 30) return `${days} days ago`;
-  const months = Math.floor(days / 30);
-  if (months === 1) return "1 month ago";
-  if (months < 12) return `${months} months ago`;
-  return `${Math.floor(months / 12)}y ago`;
+function statusDot(status) {
+  const s = String(status || "").toLowerCase();
+  const cls = s === "ok" ? "status-ok" : s === "warn" ? "status-warn" : s === "fail" ? "status-fail" : "";
+  return `<span class="status-dot ${cls}"></span>`;
 }
 
-// --- Toast ---
-let toastTimer = null;
-function showToast(message, kind = "info", durationMs = 3500) {
-  let toast = $("#toast");
-  if (!toast) {
-    toast = document.createElement("div");
-    toast.id = "toast";
-    toast.className = "toast";
-    document.body.appendChild(toast);
-  }
-  toast.className = `toast toast-${kind}`;
-  toast.textContent = message;
-  toast.classList.remove("hidden");
-  if (toastTimer) clearTimeout(toastTimer);
-  if (durationMs > 0) {
-    toastTimer = setTimeout(() => toast.classList.add("hidden"), durationMs);
-  }
+function statusBadge(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "ok" || s === "pass") return '<span class="status-pill status-ok">OK</span>';
+  if (s === "warn" || s === "warning") return '<span class="status-pill status-warn">WARN</span>';
+  if (s === "fail" || s === "error") return '<span class="status-pill status-fail">FAIL</span>';
+  if (s === "skip" || s === "skipped") return '<span class="status-pill status-skip">SKIP</span>';
+  return `<span class="status-pill">${escape(status || "?")}</span>`;
 }
 
-function hideToast() {
-  $("#toast")?.classList.add("hidden");
-  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
-}
-
-// --- Installed plugins state ---
-// Map: lowercased "owner/repo" → installed plugin object (from `fledge plugins list`).
-let installedBySource = new Map();
-// Map: plugin name → installed plugin object
-let installedByName = new Map();
-
-async function refreshInstalled() {
-  const list = await api("/plugins");
-  const plugins = Array.isArray(list) ? list : [];
-  installedBySource = new Map();
-  installedByName = new Map();
-  for (const p of plugins) {
-    if (p?.source) installedBySource.set(p.source.toLowerCase(), p);
-    if (p?.name) installedByName.set(p.name, p);
-  }
-  return plugins;
-}
-
-function isInstalled(repoFullName) {
-  return installedBySource.has(String(repoFullName || "").toLowerCase());
-}
-
-// --- Actions ---
-async function installRepo(fullName, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Installing…"; }
-  showToast(`Installing ${fullName}…`, "info", 0);
-  const result = await postJSON("/plugins/install", { source: fullName });
-  if (result?.success) {
-    showToast(`Installed ${fullName}`, "success");
-    await refreshInstalled();
-    invalidatePages(["installed", "store"]);
-    refreshActivePage();
-  } else {
-    showToast(`Install failed: ${truncate(result?.error || "unknown error", 200)}`, "error", 6000);
-    if (btn) { btn.disabled = false; btn.textContent = "Install"; }
-  }
-}
-
-async function removePlugin(name, btn) {
-  if (!confirm(`Remove ${name}?`)) return;
-  if (btn) { btn.disabled = true; btn.textContent = "Removing…"; }
-  showToast(`Removing ${name}…`, "info", 0);
-  const result = await postJSON("/plugins/remove", { name });
-  if (result?.success) {
-    showToast(`Removed ${name}`, "success");
-    await refreshInstalled();
-    invalidatePages(["installed", "store"]);
-    refreshActivePage();
-  } else {
-    showToast(`Remove failed: ${truncate(result?.error || "unknown error", 200)}`, "error", 6000);
-    if (btn) { btn.disabled = false; btn.textContent = "Remove"; }
-  }
-}
-
-async function updatePlugin(name, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Updating…"; }
-  showToast(`Updating ${name}…`, "info", 0);
-  const result = await postJSON("/plugins/update", { name });
-  if (result?.success) {
-    showToast(`Updated ${name}`, "success");
-    await refreshInstalled();
-    invalidatePages(["installed", "store"]);
-    refreshActivePage();
-  } else {
-    showToast(`Update failed: ${truncate(result?.error || "unknown error", 200)}`, "error", 6000);
-    if (btn) { btn.disabled = false; btn.textContent = "Update"; }
-  }
-}
-
-function truncate(s, n) {
-  s = String(s ?? "");
-  return s.length > n ? s.slice(0, n) + "…" : s;
-}
-
-function invalidatePages(names) {
-  for (const n of names) loaded[n] = false;
-}
-
-function refreshActivePage() {
-  const active = $(".page.active");
-  if (!active) return;
-  const id = active.id.replace("page-", "");
-  loaders[id]?.();
-}
+// --- Store card ---
 
 function renderStoreCard(repo) {
   const owner = escape(repo.owner?.login || "");
@@ -194,15 +284,11 @@ function renderStoreCard(repo) {
   const installedPlugin = installedBySource.get((repo.full_name || "").toLowerCase());
 
   const actions = installed
-    ? `
-        <button class="btn btn-sm btn-outline" data-action="readme" data-owner="${escape(repo.owner?.login)}" data-repo="${escape(repo.name)}">README</button>
-        <button class="btn btn-sm btn-outline" data-action="update" data-name="${escape(installedPlugin?.name || repo.name)}">Update</button>
-        <button class="btn btn-sm btn-danger" data-action="remove" data-name="${escape(installedPlugin?.name || repo.name)}">Remove</button>
-      `
-    : `
-        <button class="btn btn-sm btn-outline" data-action="readme" data-owner="${escape(repo.owner?.login)}" data-repo="${escape(repo.name)}">README</button>
-        <button class="btn btn-sm" data-action="install" data-source="${fullEsc}">Install</button>
-      `;
+    ? `<button class="btn btn-sm btn-outline" data-action="readme" data-owner="${escape(repo.owner?.login)}" data-repo="${escape(repo.name)}">Readme</button>
+       <button class="btn btn-sm btn-outline" data-action="update" data-name="${escape(installedPlugin?.name || repo.name)}">Update</button>
+       <button class="btn btn-sm btn-danger" data-action="remove" data-name="${escape(installedPlugin?.name || repo.name)}">Remove</button>`
+    : `<button class="btn btn-sm btn-outline" data-action="readme" data-owner="${escape(repo.owner?.login)}" data-repo="${escape(repo.name)}">Readme</button>
+       <button class="btn btn-sm" data-action="install" data-source="${fullEsc}">Install</button>`;
 
   return `
     <div class="store-card${installed ? " store-card-installed" : ""}">
@@ -222,7 +308,7 @@ function renderStoreCard(repo) {
       <div class="store-card-desc">${escape(repo.description || "No description")}</div>
       <div class="store-card-topics">
         ${typeBadge(repo.topics)}
-        ${topics.filter(t => t !== "fledge-plugin" && t !== "fledge-template").map((t) => `<span class="topic-tag">${escape(t)}</span>`).join("")}
+        ${topics.filter((t) => t !== "fledge-plugin" && t !== "fledge-template").map((t) => `<span class="topic-tag">${escape(t)}</span>`).join("")}
       </div>
       <div class="store-card-footer">
         <div class="store-card-stats">
@@ -230,164 +316,26 @@ function renderStoreCard(repo) {
           ${repo.language ? `<span class="store-card-stat">${escape(repo.language)}</span>` : ""}
           <span class="store-card-stat">${timeAgo(repo.updated_at)}</span>
         </div>
-        <div class="store-card-actions">
-          ${actions}
-        </div>
+        <div class="store-card-actions">${actions}</div>
       </div>
-    </div>
-  `;
+    </div>`;
 }
+
+// --- README modal ---
 
 async function showReadme(owner, repo) {
   const modal = $("#readme-modal");
   const title = $("#readme-title");
   const body = $("#readme-body");
   title.textContent = `${owner}/${repo}`;
-  body.textContent = "Loading...";
+  body.innerHTML = '<div class="loading">Loading README</div>';
   modal.classList.remove("hidden");
   const data = await api(`/github/readme/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
-  body.textContent = data?.content || data?.error || "No README found";
+  const content = data?.content || data?.error || "No README found";
+  body.innerHTML = renderMarkdown(content);
 }
 
-let currentCategory = "all";
-let currentSearch = "";
-
-const loaded = {};
-
-function statusDot(status) {
-  const s = String(status || "").toLowerCase();
-  const cls = s === "ok" ? "status-ok" : s === "warn" ? "status-warn" : s === "fail" ? "status-fail" : "";
-  return `<span class="status-dot ${cls}"></span>`;
-}
-
-function renderProject(info) {
-  const header = $("#project-header");
-  const content = $("#project-content");
-
-  const headerHtml = `
-    <div class="project-header">
-      <div class="project-header-main">
-        <div class="project-header-kicker"><span>01 / Project</span></div>
-        <h1>${escape(info.name || "Untitled")}</h1>
-        <div class="project-header-meta">
-          ${info.version ? `<span class="badge badge-version">v${escape(info.version)}</span>` : ""}
-          ${info.branch ? `<span class="badge badge-team">${escape(info.branch)}</span>` : ""}
-          ${(info.languages || []).map((l) => `<span class="badge badge-command">${escape(l)}</span>`).join("")}
-        </div>
-        <div class="project-header-cwd">${escape(info.cwd || "")}</div>
-      </div>
-      <div class="project-header-actions">
-        ${info.remoteUrl ? `<button class="btn btn-outline" data-action="open-repo">Open repo ↗</button>` : ""}
-      </div>
-    </div>
-  `;
-  html(header, headerHtml);
-
-  const healthHtml = `
-    <div class="card">
-      <h2>Health</h2>
-      <div class="health-list">
-        ${(info.health || []).map((h) => `
-          <div class="health-item">
-            ${statusDot(h.status)}
-            <span class="health-name">${escape(h.name)}</span>
-            <span class="health-detail">${escape(h.detail || "")}</span>
-          </div>
-        `).join("")}
-      </div>
-    </div>
-  `;
-
-  const tasksHtml = info.hasFledgeToml ? `
-    <div class="card">
-      <h2>Tasks</h2>
-      ${info.tasks.length === 0 ? renderEmpty("No tasks defined in fledge.toml") : `
-        <div class="run-list">
-          ${info.tasks.map((t) => `
-            <div class="run-item">
-              <div class="run-item-body">
-                <div class="run-item-name">${escape(t.name)}</div>
-                ${t.description ? `<div class="run-item-desc">${escape(t.description)}</div>` : ""}
-                ${t.cmd ? `<div class="run-item-cmd"><code>${escape(t.cmd)}</code></div>` : ""}
-              </div>
-              <button class="btn btn-sm" data-action="run-task" data-name="${escape(t.name)}">Run</button>
-            </div>
-          `).join("")}
-        </div>
-      `}
-    </div>
-  ` : "";
-
-  const lanesHtml = info.hasFledgeToml ? `
-    <div class="card">
-      <h2>Lanes</h2>
-      ${info.lanes.length === 0 ? renderEmpty("No lanes defined") : `
-        <div class="run-list">
-          ${info.lanes.map((l) => `
-            <div class="run-item">
-              <div class="run-item-body">
-                <div class="run-item-name">${escape(l.name)}</div>
-                ${l.description ? `<div class="run-item-desc">${escape(l.description)}</div>` : ""}
-                <div class="run-item-meta">
-                  ${l.steps != null ? `<span class="badge badge-version">${l.steps} steps</span>` : ""}
-                  ${l.fail_fast ? `<span class="badge badge-team">fail-fast</span>` : ""}
-                </div>
-              </div>
-              <button class="btn btn-sm" data-action="run-lane" data-name="${escape(l.name)}">Run</button>
-            </div>
-          `).join("")}
-        </div>
-      `}
-    </div>
-  ` : "";
-
-  const commitsHtml = info.isGit && info.commits.length > 0 ? `
-    <div class="card">
-      <h2>Recent commits</h2>
-      <div class="commits-list">
-        ${info.commits.slice(0, 10).map((c) => `
-          <div class="commit-row">
-            <span class="commit-hash">${escape(c.hash)}</span>
-            <span class="commit-subject">${escape(c.subject)}</span>
-            <span class="commit-meta">${escape(c.author)} · ${escape(c.date)}</span>
-          </div>
-        `).join("")}
-      </div>
-    </div>
-  ` : "";
-
-  const workingTreeHtml = info.isGit && info.workingTree.length > 0 ? `
-    <div class="card">
-      <h2>Working tree (${info.workingTree.length})</h2>
-      <pre class="terminal-output">${escape(info.workingTree.join("\n"))}</pre>
-    </div>
-  ` : "";
-
-  const tagsHtml = info.tags.length > 0 ? `
-    <div class="card">
-      <h2>Recent tags</h2>
-      <div class="tag-list">
-        ${info.tags.map((t) => `<span class="badge badge-version">${escape(t)}</span>`).join("")}
-      </div>
-    </div>
-  ` : "";
-
-  html(content, `
-    <div id="run-output-card" class="card hidden">
-      <div class="run-output-header">
-        <h2 id="run-output-title">Output</h2>
-        <button class="btn-icon" data-action="close-output" aria-label="Close">&times;</button>
-      </div>
-      <pre class="terminal-output" id="run-output-body"></pre>
-    </div>
-    ${healthHtml}
-    ${tasksHtml}
-    ${lanesHtml}
-    ${commitsHtml}
-    ${workingTreeHtml}
-    ${tagsHtml}
-  `);
-}
+// --- Run output ---
 
 function showRunOutput(title, body, kind = "info") {
   const card = $("#run-output-card");
@@ -441,10 +389,184 @@ async function openRepo() {
   }
 }
 
+// --- Project page ---
+
+function renderProject(info) {
+  const header = $("#project-header");
+  const content = $("#project-content");
+
+  html(header, `
+    <div class="project-header">
+      <div>
+        <div class="project-header-kicker">Project</div>
+        <h1>${escape(info.name || "Untitled")}</h1>
+        <div class="project-header-meta">
+          ${info.version ? `<span class="badge badge-version">v${escape(info.version)}</span>` : ""}
+          ${info.branch ? `<span class="badge badge-team">${escape(info.branch)}</span>` : ""}
+          ${(info.languages || []).map((l) => `<span class="badge badge-command">${escape(l)}</span>`).join("")}
+        </div>
+        <div class="project-header-cwd">${escape(info.cwd || "")}</div>
+      </div>
+      <div class="project-header-actions">
+        ${info.remoteUrl ? '<button class="btn btn-outline" data-action="open-repo">Open repo</button>' : ""}
+      </div>
+    </div>`);
+
+  const healthHtml = `
+    <div class="card">
+      <h2>Health</h2>
+      <div class="health-list">
+        ${(info.health || []).map((h) => `
+          <div class="health-item">
+            ${statusDot(h.status)}
+            <span class="health-name">${escape(h.name)}</span>
+            <span class="health-detail">${escape(h.detail || "")}</span>
+          </div>`).join("")}
+      </div>
+    </div>`;
+
+  const tasksHtml = info.hasFledgeToml
+    ? `<div class="card">
+        <h2>Tasks</h2>
+        ${info.tasks.length === 0
+          ? renderEmpty("No tasks defined in fledge.toml")
+          : `<div class="run-list">
+              ${info.tasks.map((t) => `
+                <div class="run-item">
+                  <div>
+                    <div class="run-item-name">${escape(t.name)}</div>
+                    ${t.description ? `<div class="run-item-desc">${escape(t.description)}</div>` : ""}
+                    ${t.cmd ? `<div class="run-item-cmd"><code>${escape(t.cmd)}</code></div>` : ""}
+                  </div>
+                  <button class="btn btn-sm" data-action="run-task" data-name="${escape(t.name)}">Run</button>
+                </div>`).join("")}
+            </div>`}
+      </div>`
+    : "";
+
+  const lanesHtml = info.hasFledgeToml
+    ? `<div class="card">
+        <h2>Lanes</h2>
+        ${info.lanes.length === 0
+          ? renderEmpty("No lanes defined")
+          : `<div class="run-list">
+              ${info.lanes.map((l) => `
+                <div class="run-item">
+                  <div>
+                    <div class="run-item-name">${escape(l.name)}</div>
+                    ${l.description ? `<div class="run-item-desc">${escape(l.description)}</div>` : ""}
+                    <div class="run-item-meta">
+                      ${l.steps != null ? `<span class="badge badge-version">${l.steps} steps</span>` : ""}
+                      ${l.fail_fast ? '<span class="badge badge-team">fail-fast</span>' : ""}
+                    </div>
+                  </div>
+                  <button class="btn btn-sm" data-action="run-lane" data-name="${escape(l.name)}">Run</button>
+                </div>`).join("")}
+            </div>`}
+      </div>`
+    : "";
+
+  const commitsHtml = info.isGit && info.commits.length > 0
+    ? `<div class="card">
+        <h2>Recent commits</h2>
+        <div class="commits-list">
+          ${info.commits.slice(0, 10).map((c) => `
+            <div class="commit-row">
+              <span class="commit-hash">${escape(c.hash)}</span>
+              <span class="commit-subject">${escape(c.subject)}</span>
+              <span class="commit-meta">${escape(c.author)} · ${escape(c.date)}</span>
+            </div>`).join("")}
+        </div>
+      </div>`
+    : "";
+
+  const workingTreeHtml = info.isGit && info.workingTree.length > 0
+    ? `<div class="card">
+        <h2>Working tree (${info.workingTree.length})</h2>
+        <pre class="terminal-output">${escape(info.workingTree.join("\n"))}</pre>
+      </div>`
+    : "";
+
+  const tagsHtml = info.tags.length > 0
+    ? `<div class="card">
+        <h2>Recent tags</h2>
+        <div class="tag-list">
+          ${info.tags.map((t) => `<span class="badge badge-version">${escape(t)}</span>`).join("")}
+        </div>
+      </div>`
+    : "";
+
+  html(content, `
+    <div id="run-output-card" class="card hidden">
+      <div class="run-output-header">
+        <h2 id="run-output-title">Output</h2>
+        <button class="btn-icon" data-action="close-output" aria-label="Close">&times;</button>
+      </div>
+      <pre class="terminal-output" id="run-output-body"></pre>
+    </div>
+    ${healthHtml}
+    ${tasksHtml}
+    ${lanesHtml}
+    ${commitsHtml}
+    ${workingTreeHtml}
+    ${tagsHtml}`);
+}
+
+// --- Doctor ---
+
+function renderDoctor(report) {
+  const passed = Number(report.passed ?? 0);
+  const failed = Number(report.failed ?? 0);
+
+  const summary = `
+    <div class="doctor-summary">
+      <div class="doctor-summary-item doctor-summary-ok">
+        <div class="doctor-summary-value">${passed}</div>
+        <div class="doctor-summary-label">passed</div>
+      </div>
+      <div class="doctor-summary-item ${failed > 0 ? "doctor-summary-fail" : ""}">
+        <div class="doctor-summary-value">${failed}</div>
+        <div class="doctor-summary-label">failed</div>
+      </div>
+    </div>`;
+
+  const sections = (report.sections || [])
+    .map((sec) => {
+      const checks = (sec.checks || [])
+        .map((chk) => `
+          <div class="doctor-check">
+            <div class="doctor-check-status">${statusBadge(chk.status)}</div>
+            <div>
+              <div class="doctor-check-name">
+                ${escape(chk.name)}
+                ${chk.version ? `<span class="badge badge-version">${escape(chk.version)}</span>` : ""}
+              </div>
+              ${chk.detail ? `<div class="doctor-check-detail">${escape(chk.detail)}</div>` : ""}
+              ${chk.fix ? `<div class="doctor-check-fix"><strong>Fix:</strong> ${escape(chk.fix)}</div>` : ""}
+            </div>
+          </div>`)
+        .join("");
+      return `
+        <div class="doctor-section">
+          <h3 class="doctor-section-name">${escape(sec.name)}</h3>
+          <div class="doctor-checks">${checks}</div>
+        </div>`;
+    })
+    .join("");
+
+  return `${summary}${sections}`;
+}
+
+// --- Page loaders ---
+
+let currentCategory = "all";
+let currentSearch = "";
+const loaded = {};
+
 const loaders = {
   async project() {
     const header = $("#project-header");
-    html(header, '<div class="loading">Loading project…</div>');
+    html(header, '<div class="loading">Loading project</div>');
     const info = await api("/project");
     if (info?.error) {
       html(header, renderError(typeof info.error === "string" ? info.error : JSON.stringify(info.error)));
@@ -455,8 +577,7 @@ const loaders = {
 
   async store() {
     const grid = $("#store-grid");
-    html(grid, '<div class="loading">Loading packages from GitHub...</div>');
-    // Always refresh installed list so the badges are current.
+    html(grid, '<div class="loading">Loading packages from GitHub</div>');
     await refreshInstalled();
     const params = new URLSearchParams({ category: currentCategory });
     if (currentSearch) params.set("q", currentSearch);
@@ -485,7 +606,6 @@ const loaders = {
     const cmds = Array.isArray(info?.commands) ? info.commands : [];
     const pluginList = Array.isArray(plugins) ? plugins : [];
     const templateList = Array.isArray(templates) ? templates : [];
-
     const topLevel = cmds.length;
     const subCmds = cmds.reduce((n, c) => n + (c.subcommands?.length || 0), 0);
 
@@ -493,8 +613,7 @@ const loaders = {
       <div class="stat-card"><div class="stat-value">${pluginList.length}</div><div class="stat-label">Plugins</div></div>
       <div class="stat-card"><div class="stat-value">${templateList.length}</div><div class="stat-label">Templates</div></div>
       <div class="stat-card"><div class="stat-value">${topLevel}</div><div class="stat-label">Commands</div></div>
-      <div class="stat-card"><div class="stat-value">${subCmds}</div><div class="stat-label">Subcommands</div></div>
-    `);
+      <div class="stat-card"><div class="stat-value">${subCmds}</div><div class="stat-label">Subcommands</div></div>`);
 
     const pluginsList = $("#installed-plugins-list");
     if (pluginList.length === 0) {
@@ -513,8 +632,7 @@ const loaders = {
             <button class="btn btn-sm btn-outline" data-action="update" data-name="${escape(p.name)}">Update</button>
             <button class="btn btn-sm btn-danger" data-action="remove" data-name="${escape(p.name)}">Remove</button>
           </div>
-        </div>
-      `).join(""));
+        </div>`).join(""));
     }
 
     const templatesList = $("#installed-templates-list");
@@ -529,8 +647,7 @@ const loaders = {
             ${t.language ? `<span class="badge badge-command">${escape(t.language)}</span>` : ""}
             ${t.stars != null ? `<span class="badge badge-version">${t.stars} stars</span>` : ""}
           </div>
-        </div>
-      `).join(""));
+        </div>`).join(""));
     }
 
     const tree = $("#command-tree");
@@ -541,9 +658,10 @@ const loaders = {
         <div class="cmd-group">
           <div class="cmd-group-name">fledge ${escape(cmd.name)}</div>
           ${cmd.about ? `<div class="cmd-item">${escape(cmd.about)}</div>` : ""}
-          ${(cmd.subcommands || []).map((sub) => `<div class="cmd-item"><span>${escape(sub.name)}</span> ${sub.about ? "— " + escape(sub.about) : ""}</div>`).join("")}
-        </div>
-      `).join(""));
+          ${(cmd.subcommands || []).map((sub) =>
+            `<div class="cmd-item"><span>${escape(sub.name)}</span> ${sub.about ? "— " + escape(sub.about) : ""}</div>`
+          ).join("")}
+        </div>`).join(""));
     }
 
     loaded.installed = true;
@@ -560,7 +678,6 @@ const loaders = {
     }
 
     const lanes = Array.isArray(data) ? data : [];
-
     if (lanes.length === 0) {
       html(list, renderEmpty('No lanes defined. Add lanes to your <code>fledge.toml</code>'));
     } else {
@@ -572,14 +689,12 @@ const loaders = {
             ${l.description ? `<div class="lane-desc">${escape(l.description)}</div>` : ""}
             <div class="lane-meta">
               ${stepCount != null ? `<span class="badge badge-version">${stepCount} step${stepCount === 1 ? "" : "s"}</span>` : ""}
-              ${l.fail_fast ? `<span class="badge badge-team">fail-fast</span>` : ""}
+              ${l.fail_fast ? '<span class="badge badge-team">fail-fast</span>' : ""}
               ${l.trust_tier ? `<span class="badge badge-command">${escape(l.trust_tier)}</span>` : ""}
             </div>
-          </div>
-        `;
+          </div>`;
       }).join(""));
     }
-
     loaded.lanes = true;
   },
 
@@ -599,10 +714,8 @@ const loaders = {
     if (total === 0) {
       html(list, renderEmpty("No config entries found"));
     } else {
-      const path = data?.path
-        ? `<div class="config-path">${escape(data.path)}</div>`
-        : "";
-      const sectionsHtml = sections.map((s) => `
+      const path = data?.path ? `<div class="config-path">${escape(data.path)}</div>` : "";
+      html(list, `${path}${sections.map((s) => `
         <div class="config-section">
           <h3 class="config-section-name">${escape(s.name)}</h3>
           <div class="config-entries">
@@ -611,20 +724,16 @@ const loaders = {
                 <span class="config-key">${escape(e.key)}</span>
                 <span class="config-value">${escape(e.value)}</span>
                 ${e.help ? `<span class="config-help">${escape(e.help)}</span>` : ""}
-              </div>
-            `).join("")}
+              </div>`).join("")}
           </div>
-        </div>
-      `).join("");
-      html(list, `${path}${sectionsHtml}`);
+        </div>`).join("")}`);
     }
-
     loaded.config = true;
   },
 
   async doctor() {
     const wrap = $("#doctor-output");
-    html(wrap, '<div class="loading">Running doctor…</div>');
+    html(wrap, '<div class="loading">Running doctor</div>');
     const data = await api("/doctor");
     if (data?.error) {
       html(wrap, renderError(typeof data.error === "string" ? data.error : JSON.stringify(data.error)));
@@ -640,76 +749,98 @@ const loaders = {
   },
 };
 
-function statusBadge(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "ok" || s === "pass") return `<span class="status-pill status-ok">OK</span>`;
-  if (s === "warn" || s === "warning") return `<span class="status-pill status-warn">WARN</span>`;
-  if (s === "fail" || s === "error") return `<span class="status-pill status-fail">FAIL</span>`;
-  if (s === "skip" || s === "skipped") return `<span class="status-pill status-skip">SKIP</span>`;
-  return `<span class="status-pill">${escape(status || "?")}</span>`;
+// --- Command palette ---
+
+const cmdPages = [
+  { label: "Overview", page: "project", hint: "Project" },
+  { label: "Store", page: "store", hint: "Browse packages" },
+  { label: "Installed", page: "installed", hint: "Plugins & templates" },
+  { label: "Lanes", page: "lanes", hint: "Workflow pipelines" },
+  { label: "Config", page: "config", hint: "Global config" },
+  { label: "Doctor", page: "doctor", hint: "Diagnostics" },
+];
+
+let cmdActiveIndex = 0;
+
+function openCmdPalette() {
+  const palette = $("#cmd-palette");
+  palette.classList.remove("hidden");
+  const input = $("#cmd-input");
+  input.value = "";
+  input.focus();
+  renderCmdResults("");
 }
 
-function renderDoctor(report) {
-  const passed = Number(report.passed ?? 0);
-  const failed = Number(report.failed ?? 0);
-  const summary = `
-    <div class="doctor-summary">
-      <div class="doctor-summary-item doctor-summary-ok">
-        <div class="doctor-summary-value">${passed}</div>
-        <div class="doctor-summary-label">passed</div>
-      </div>
-      <div class="doctor-summary-item ${failed > 0 ? "doctor-summary-fail" : ""}">
-        <div class="doctor-summary-value">${failed}</div>
-        <div class="doctor-summary-label">failed</div>
-      </div>
-    </div>
-  `;
-  const sections = (report.sections || []).map((sec) => {
-    const checks = (sec.checks || []).map((chk) => `
-      <div class="doctor-check">
-        <div class="doctor-check-status">${statusBadge(chk.status)}</div>
-        <div class="doctor-check-body">
-          <div class="doctor-check-name">
-            ${escape(chk.name)}
-            ${chk.version ? `<span class="badge badge-version">${escape(chk.version)}</span>` : ""}
-          </div>
-          ${chk.detail ? `<div class="doctor-check-detail">${escape(chk.detail)}</div>` : ""}
-          ${chk.fix ? `<div class="doctor-check-fix"><strong>Fix:</strong> ${escape(chk.fix)}</div>` : ""}
-        </div>
-      </div>
-    `).join("");
-    return `
-      <div class="doctor-section">
-        <h3 class="doctor-section-name">${escape(sec.name)}</h3>
-        <div class="doctor-checks">${checks}</div>
-      </div>
-    `;
-  }).join("");
-  return `${summary}${sections}`;
+function closeCmdPalette() {
+  $("#cmd-palette").classList.add("hidden");
 }
 
-// --- Event delegation for action buttons ---
+function renderCmdResults(query) {
+  const results = $("#cmd-results");
+  const q = query.toLowerCase().trim();
+
+  let items = cmdPages;
+  if (q) {
+    items = cmdPages.filter(
+      (p) => p.label.toLowerCase().includes(q) || p.hint.toLowerCase().includes(q)
+    );
+  }
+
+  // Add installed plugins to results
+  for (const [name] of installedByName) {
+    if (!q || name.toLowerCase().includes(q)) {
+      items.push({ label: name, page: "installed", hint: "Installed plugin" });
+    }
+  }
+
+  if (items.length === 0) {
+    results.innerHTML = '<div class="cmd-result" style="color:var(--text-faint)">No results</div>';
+    cmdActiveIndex = -1;
+    return;
+  }
+
+  cmdActiveIndex = 0;
+  results.innerHTML = items
+    .slice(0, 8)
+    .map((item, i) => `
+      <div class="cmd-result${i === 0 ? " active" : ""}" data-page="${item.page}" data-index="${i}">
+        <span class="cmd-result-label">${escape(item.label)}</span>
+        <span class="cmd-result-hint">${escape(item.hint)}</span>
+      </div>`)
+    .join("");
+}
+
+function cmdSelectActive() {
+  const active = $(".cmd-result.active");
+  if (!active) return;
+  const page = active.dataset.page;
+  closeCmdPalette();
+  if (page) navigate(page);
+}
+
+function cmdMove(delta) {
+  const items = $$(".cmd-result");
+  if (items.length === 0) return;
+  items[cmdActiveIndex]?.classList.remove("active");
+  cmdActiveIndex = (cmdActiveIndex + delta + items.length) % items.length;
+  items[cmdActiveIndex]?.classList.add("active");
+  items[cmdActiveIndex]?.scrollIntoView({ block: "nearest" });
+}
+
+// --- Event delegation ---
+
 document.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const action = btn.dataset.action;
-  if (action === "install") {
-    installRepo(btn.dataset.source, btn);
-  } else if (action === "remove") {
-    removePlugin(btn.dataset.name, btn);
-  } else if (action === "update") {
-    updatePlugin(btn.dataset.name, btn);
-  } else if (action === "readme") {
-    showReadme(btn.dataset.owner, btn.dataset.repo);
-  } else if (action === "run-task") {
-    runTask(btn.dataset.name, btn);
-  } else if (action === "run-lane") {
-    runLane(btn.dataset.name, btn);
-  } else if (action === "open-repo") {
-    openRepo();
-  } else if (action === "close-output") {
-    $("#run-output-card")?.classList.add("hidden");
-  }
+  if (action === "install") installRepo(btn.dataset.source, btn);
+  else if (action === "remove") removePlugin(btn.dataset.name, btn);
+  else if (action === "update") updatePlugin(btn.dataset.name, btn);
+  else if (action === "readme") showReadme(btn.dataset.owner, btn.dataset.repo);
+  else if (action === "run-task") runTask(btn.dataset.name, btn);
+  else if (action === "run-lane") runLane(btn.dataset.name, btn);
+  else if (action === "open-repo") openRepo();
+  else if (action === "close-output") $("#run-output-card")?.classList.add("hidden");
 });
 
 // Nav links
@@ -720,7 +851,7 @@ $$(".nav-link").forEach((link) => {
   });
 });
 
-// Category tabs (store)
+// Category tabs
 $$(".category-tabs .tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     $$(".category-tabs .tab").forEach((t) => t.classList.remove("active"));
@@ -730,7 +861,7 @@ $$(".category-tabs .tab").forEach((tab) => {
   });
 });
 
-// Section tabs (installed)
+// Section tabs
 $$(".section-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     $$(".section-tab").forEach((t) => t.classList.remove("active"));
@@ -762,7 +893,49 @@ $(".modal-close")?.addEventListener("click", () => {
   $("#readme-modal")?.classList.add("hidden");
 });
 
-// Init
+// Command palette
+$(".cmd-palette-backdrop")?.addEventListener("click", closeCmdPalette);
+
+$("#cmd-input")?.addEventListener("input", (e) => {
+  renderCmdResults(e.target.value);
+});
+
+$("#cmd-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") { e.preventDefault(); cmdMove(1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); cmdMove(-1); }
+  else if (e.key === "Enter") { e.preventDefault(); cmdSelectActive(); }
+  else if (e.key === "Escape") { closeCmdPalette(); }
+});
+
+$("#cmd-results")?.addEventListener("click", (e) => {
+  const item = e.target.closest(".cmd-result");
+  if (item?.dataset.page) {
+    closeCmdPalette();
+    navigate(item.dataset.page);
+  }
+});
+
+// Keyboard shortcut: Cmd+K / Ctrl+K
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+    e.preventDefault();
+    const palette = $("#cmd-palette");
+    if (palette.classList.contains("hidden")) {
+      openCmdPalette();
+    } else {
+      closeCmdPalette();
+    }
+  }
+
+  if (e.key === "Escape") {
+    if (!$("#readme-modal").classList.contains("hidden")) {
+      $("#readme-modal").classList.add("hidden");
+    }
+  }
+});
+
+// --- Init ---
+
 (async () => {
   const info = await api("/info");
   if (info?.version) {
