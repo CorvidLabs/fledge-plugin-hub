@@ -36,6 +36,15 @@ bun run start
 - **Config** — global fledge configuration
 - **Doctor** — environment diagnostics with structured pass/warn/fail view
 
+## Development
+
+```bash
+bun install
+bun run dev          # start with --watch for live reload
+bun test             # run unit tests
+bun run typecheck    # type-check without emitting
+```
+
 ## Requirements
 
 - [Bun](https://bun.sh) runtime
