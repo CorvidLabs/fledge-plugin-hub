@@ -1,6 +1,6 @@
 [plugin]
 name = "fledge-plugin-hub"
-version = "0.6.0"
+version = "0.7.0"
 description = "Local web dashboard for browsing and managing fledge templates, plugins, lanes, and config"
 author = "CorvidLabs"
 
