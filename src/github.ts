@@ -58,6 +58,26 @@ interface SearchResult {
   items: GHRepo[];
 }
 
+export interface BrowseFilters {
+  q?: string;
+  language?: string;
+  topics?: string[];
+  owner?: string;
+  license?: string;
+}
+
+export interface FacetEntry {
+  value: string;
+  count: number;
+}
+
+export interface Facets {
+  topics: FacetEntry[];
+  languages: FacetEntry[];
+  owners: FacetEntry[];
+  licenses: FacetEntry[];
+}
+
 function toRepoList(result: SearchResult): GHRepo[] {
   return (result.items || []).map((r) => ({
     full_name: r.full_name,
@@ -73,28 +93,47 @@ function toRepoList(result: SearchResult): GHRepo[] {
   }));
 }
 
-export async function browsePlugins(query?: string): Promise<GHRepo[]> {
-  const q = query
-    ? `${query} topic:fledge-plugin`
-    : "topic:fledge-plugin";
-  const url = `${GITHUB_API}/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=30`;
+// Topics that should not appear as user-selectable filters because they're
+// the markers that tell us a repo is a fledge plugin/template at all.
+const RESERVED_TOPICS = new Set(["fledge-plugin", "fledge-template", "fledge"]);
+
+export function buildQualifiers(baseTopic: string, filters: BrowseFilters): string {
+  const parts: string[] = [];
+  if (filters.q) parts.push(filters.q);
+  parts.push(`topic:${baseTopic}`);
+  for (const t of filters.topics || []) {
+    if (!t || RESERVED_TOPICS.has(t.toLowerCase())) continue;
+    parts.push(`topic:${t}`);
+  }
+  if (filters.language) parts.push(`language:${quoteIfNeeded(filters.language)}`);
+  if (filters.owner) parts.push(`user:${filters.owner}`);
+  if (filters.license) parts.push(`license:${filters.license}`);
+  return parts.join(" ");
+}
+
+function quoteIfNeeded(value: string): string {
+  return /\s/.test(value) ? `"${value}"` : value;
+}
+
+async function search(baseTopic: string, filters: BrowseFilters): Promise<GHRepo[]> {
+  const q = buildQualifiers(baseTopic, filters);
+  const url = `${GITHUB_API}/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=50`;
   const result = (await ghFetch(url)) as SearchResult;
   return toRepoList(result);
 }
 
-export async function browseTemplates(query?: string): Promise<GHRepo[]> {
-  const q = query
-    ? `${query} topic:fledge-template`
-    : "topic:fledge-template";
-  const url = `${GITHUB_API}/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=30`;
-  const result = (await ghFetch(url)) as SearchResult;
-  return toRepoList(result);
+export async function browsePlugins(filters: BrowseFilters = {}): Promise<GHRepo[]> {
+  return search("fledge-plugin", filters);
 }
 
-export async function browseAll(query?: string): Promise<GHRepo[]> {
+export async function browseTemplates(filters: BrowseFilters = {}): Promise<GHRepo[]> {
+  return search("fledge-template", filters);
+}
+
+export async function browseAll(filters: BrowseFilters = {}): Promise<GHRepo[]> {
   const [plugins, templates] = await Promise.all([
-    browsePlugins(query),
-    browseTemplates(query),
+    browsePlugins(filters),
+    browseTemplates(filters),
   ]);
   const seen = new Set<string>();
   const merged: GHRepo[] = [];
@@ -106,6 +145,52 @@ export async function browseAll(query?: string): Promise<GHRepo[]> {
   }
   merged.sort((a, b) => b.stargazers_count - a.stargazers_count);
   return merged;
+}
+
+function tally<Value>(
+  items: readonly GHRepo[],
+  pick: (repo: GHRepo) => readonly Value[],
+  key: (value: Value) => string,
+): FacetEntry[] {
+  const counts = new Map<string, { value: string; count: number }>();
+  for (const repo of items) {
+    const seen = new Set<string>();
+    for (const value of pick(repo)) {
+      const k = key(value);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      const entry = counts.get(k);
+      if (entry) entry.count += 1;
+      else counts.set(k, { value: String(value), count: 1 });
+    }
+  }
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+}
+
+export function computeFacets(items: readonly GHRepo[]): Facets {
+  return {
+    topics: tally(
+      items,
+      (r) => (r.topics || []).filter((t) => !RESERVED_TOPICS.has(t.toLowerCase())),
+      (t) => t.toLowerCase(),
+    ),
+    languages: tally(
+      items,
+      (r) => (r.language ? [r.language] : []),
+      (l) => l,
+    ),
+    owners: tally(
+      items,
+      (r) => (r.owner?.login ? [r.owner.login] : []),
+      (l) => l.toLowerCase(),
+    ),
+    licenses: tally(
+      items,
+      (r) => (r.license?.spdx_id && r.license.spdx_id !== "NOASSERTION" ? [r.license.spdx_id] : []),
+      (l) => l,
+    ),
+  };
 }
 
 export async function getRepoReadme(owner: string, repo: string): Promise<string> {

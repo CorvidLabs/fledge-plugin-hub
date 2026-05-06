@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { fledge, fledgeJson, projectCwd } from "./fledge";
-import { browseAll, browsePlugins, browseTemplates, getRepoReadme } from "./github";
+import {
+  browseAll,
+  browsePlugins,
+  browseTemplates,
+  computeFacets,
+  getRepoReadme,
+  type BrowseFilters,
+} from "./github";
 import { gatherProjectInfo, openInBrowser } from "./project";
 import { parseConfigList } from "./config";
 
@@ -197,13 +204,31 @@ api.get("/info", async (c) => {
 
 api.get("/github/browse", async (c) => {
   const category = c.req.query("category") || "all";
-  const query = c.req.query("q") || undefined;
+  const filters: BrowseFilters = {
+    q: c.req.query("q") || undefined,
+    language: c.req.query("language") || undefined,
+    owner: c.req.query("owner") || undefined,
+    license: c.req.query("license") || undefined,
+    topics: c.req.queries("topic"),
+  };
   try {
     let repos;
-    if (category === "plugins") repos = await browsePlugins(query);
-    else if (category === "templates") repos = await browseTemplates(query);
-    else repos = await browseAll(query);
-    return c.json({ items: repos, total: repos.length });
+    if (category === "plugins") repos = await browsePlugins(filters);
+    else if (category === "templates") repos = await browseTemplates(filters);
+    else repos = await browseAll(filters);
+    return c.json({
+      items: repos,
+      total: repos.length,
+      facets: computeFacets(repos),
+      applied: {
+        category,
+        q: filters.q ?? null,
+        language: filters.language ?? null,
+        owner: filters.owner ?? null,
+        license: filters.license ?? null,
+        topics: filters.topics ?? [],
+      },
+    });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return c.json({ error: msg, items: [] }, 502);
