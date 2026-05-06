@@ -1,15 +1,19 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
-import { fledge, fledgeJson, projectCwd } from "./fledge";
+import type { Context } from "hono";
+import { streamSSE } from "hono/streaming";
+import { fledge, fledgeJson, fledgeStream, projectCwd } from "./fledge";
 import {
   browseAll,
   browsePlugins,
   browseTemplates,
   computeFacets,
+  fetchLatestVersion,
   getRepoReadme,
   type BrowseFilters,
 } from "./github";
+import { isOutdated } from "./semver";
 import { gatherProjectInfo, openInBrowser } from "./project";
 import { parseConfigList } from "./config";
 
@@ -36,13 +40,6 @@ function unwrap<T>(value: unknown, key: string): T[] | unknown {
     if ("error" in obj) return value;
   }
   return value;
-}
-
-function isEmptyLaneError(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  const err = (value as { error?: unknown }).error;
-  if (typeof err !== "string") return false;
-  return err.includes("No fledge.toml") || err.includes("No lanes defined");
 }
 
 api.get("/project", async (c) => {
@@ -103,71 +100,102 @@ api.get("/plugins", async (c) => {
   return c.json(unwrap(result, "plugins"));
 });
 
+interface InstalledPluginRow {
+  name?: unknown;
+  source?: unknown;
+  version?: unknown;
+}
+
+api.get("/plugins/outdated", async (c) => {
+  const list = await fledgeJson(["plugins", "list", "--json"]);
+  const plugins = unwrap(list, "plugins");
+  if (!Array.isArray(plugins)) return c.json({ items: [] });
+
+  const items = await Promise.all(
+    (plugins as InstalledPluginRow[]).map(async (p) => {
+      const name = typeof p.name === "string" ? p.name : "";
+      const source = typeof p.source === "string" ? p.source : "";
+      const current = typeof p.version === "string" ? p.version : "";
+      const slash = source.indexOf("/");
+      if (slash <= 0) {
+        return { name, source, current, latest: null, outdated: false };
+      }
+      const owner = source.slice(0, slash);
+      const repo = source.slice(slash + 1);
+      try {
+        const latest = await fetchLatestVersion(owner, repo);
+        return { name, source, current, latest, outdated: isOutdated(current, latest) };
+      } catch {
+        return { name, source, current, latest: null, outdated: false };
+      }
+    }),
+  );
+
+  return c.json({ items });
+});
+
 api.get("/plugins/search", async (c) => {
   const query = c.req.query("q") || "";
   const result = await fledgeJson(["plugins", "search", query, "--json"]);
   return c.json(unwrap(result, "results"));
 });
 
-api.post("/plugins/install", async (c) => {
-  const body: { source?: string; force?: boolean } = await c
-    .req
-    .json<{ source?: string; force?: boolean }>()
-    .catch(() => ({}));
-  if (!body.source) return c.json({ error: "source required" }, 400);
-  // --yes is required because FLEDGE_NON_INTERACTIVE is set in the env and
-  // install would otherwise bail on the trust-prompt.
-  const args = ["plugins", "install", body.source, "--yes", "--json"];
-  if (body.force) args.push("--force");
-  const result = await fledge(args);
-  return c.json({
-    success: result.exitCode === 0,
-    exitCode: result.exitCode,
-    output: result.stdout,
-    error: result.exitCode !== 0 ? result.stderr || result.stdout : null,
+// SSE-based streaming endpoints. EventSource only supports GET, so the
+// payload travels in the query string. Sources are validated to keep
+// shell-style metacharacters out of argv.
+
+const VALID_SOURCE = /^[A-Za-z0-9_./@:-]+$/;
+const VALID_NAME = /^[A-Za-z0-9_-]+$/;
+
+function streamFledge(c: Context, args: string[], opts: { cwd?: string; timeoutMs?: number } = {}) {
+  return streamSSE(c, async (stream) => {
+    let id = 0;
+    const send = async (event: { kind: string; line?: string; exitCode?: number; message?: string }) => {
+      await stream.writeSSE({
+        id: String(id++),
+        event: event.kind,
+        data: JSON.stringify(event),
+      });
+    };
+    try {
+      const exitCode = await fledgeStream(args, send, opts);
+      await send({ kind: "done", exitCode, message: exitCode === 0 ? "ok" : "failed" });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      await send({ kind: "error", message });
+      await send({ kind: "done", exitCode: -1, message });
+    }
   });
+}
+
+api.get("/plugins/install/stream", (c) => {
+  const source = c.req.query("source") || "";
+  const force = c.req.query("force") === "1";
+  if (!source || !VALID_SOURCE.test(source)) {
+    return c.json({ error: "valid source required" }, 400);
+  }
+  const args = ["plugins", "install", source, "--yes", "--json"];
+  if (force) args.push("--force");
+  return streamFledge(c, args);
 });
 
-api.post("/plugins/remove", async (c) => {
-  const body: { name?: string } = await c.req.json<{ name?: string }>().catch(() => ({}));
-  if (!body.name) return c.json({ error: "name required" }, 400);
-  const result = await fledge(["plugins", "remove", body.name, "--json"]);
-  return c.json({
-    success: result.exitCode === 0,
-    exitCode: result.exitCode,
-    output: result.stdout,
-    error: result.exitCode !== 0 ? result.stderr || result.stdout : null,
-  });
-});
-
-api.post("/plugins/update", async (c) => {
-  const body: { name?: string } = await c.req.json<{ name?: string }>().catch(() => ({}));
+api.get("/plugins/update/stream", (c) => {
+  const name = c.req.query("name") || "";
+  if (name && !VALID_NAME.test(name)) {
+    return c.json({ error: "invalid plugin name" }, 400);
+  }
   const args = ["plugins", "update"];
-  if (body.name) args.push(body.name);
+  if (name) args.push(name);
   args.push("--json");
-  const result = await fledge(args);
-  return c.json({
-    success: result.exitCode === 0,
-    exitCode: result.exitCode,
-    output: result.stdout,
-    error: result.exitCode !== 0 ? result.stderr || result.stdout : null,
-  });
+  return streamFledge(c, args);
 });
 
-api.get("/templates", async (c) => {
-  // Fledge 1.0 moved this under `templates search` and there is no longer a
-  // top-level `fledge search` command. See `fledge templates --help`.
-  const result = await fledgeJson(["templates", "search", "--json"]);
-  return c.json(unwrap(result, "results"));
-});
-
-api.get("/lanes", async (c) => {
-  // Lanes are project-scoped (declared in fledge.toml). Run in the project
-  // cwd so a user launching `fledge hub` from a project sees their lanes.
-  const cwd = projectCwd();
-  const result = await fledgeJson(["lanes", "list", "--json"], { cwd });
-  if (isEmptyLaneError(result)) return c.json([]);
-  return c.json(unwrap(result, "lanes"));
+api.get("/plugins/remove/stream", (c) => {
+  const name = c.req.query("name") || "";
+  if (!name || !VALID_NAME.test(name)) {
+    return c.json({ error: "valid plugin name required" }, 400);
+  }
+  return streamFledge(c, ["plugins", "remove", name, "--json"]);
 });
 
 api.get("/config", async (c) => {
