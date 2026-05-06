@@ -68,19 +68,33 @@
       <header class="page-head">
         <div class="page-kicker">Store</div>
         <h1 class="page-title">Browse Packages</h1>
-        <p class="page-lede">Discover plugins and templates from the fledge ecosystem.</p>
+        <p class="page-lede">Discover plugins and templates from the fledge ecosystem. Filter by topic, language, or author.</p>
       </header>
       <div class="toolbar">
         <input type="text" id="store-search" placeholder="Search plugins and templates..." class="search-input">
-        <button id="store-search-btn" class="btn">Search</button>
       </div>
       <div class="category-tabs">
         <button class="tab active" data-category="all">All</button>
         <button class="tab" data-category="plugins">Plugins</button>
         <button class="tab" data-category="templates">Templates</button>
       </div>
-      <div id="store-grid" class="store-grid">
-        <div class="loading">Loading packages from GitHub</div>
+      <div class="store-layout">
+        <aside class="filter-rail" id="filter-rail">
+          <div class="filter-rail-header">
+            <span class="filter-rail-title">Filters</span>
+            <button class="btn-link" id="clear-filters" hidden>Clear all</button>
+          </div>
+          <div id="filter-groups"></div>
+        </aside>
+        <div class="store-results">
+          <div class="store-results-header">
+            <div id="store-active-filters" class="active-filters"></div>
+            <div class="store-result-count" id="store-result-count"></div>
+          </div>
+          <div id="store-grid" class="store-grid">
+            <div class="loading">Loading packages from GitHub</div>
+          </div>
+        </div>
       </div>
     </div>
 
