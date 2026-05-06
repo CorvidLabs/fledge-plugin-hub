@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.8.0] - 2026-05-05
+
+### Features
+
+- make the hub feel alive — outdated detection, live install/update output, copyable doctor fixes, leaner nav (#7) (d541d51)
+
 ## [v0.7.0] - 2026-05-05
 
 ### CI
