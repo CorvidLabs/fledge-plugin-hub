@@ -30,9 +30,8 @@ bun run start
 
 ### Global (your fledge install)
 
-- **Store** — browse plugins and templates from GitHub, install / update / remove from the UI
-- **Installed** — manage installed plugins, see all available commands
-- **Lanes** — global lane catalog
+- **Store** — browse plugins and templates from GitHub with faceted filtering (topic, language, author, license); install / update / remove from the UI
+- **Installed** — manage installed plugins
 - **Config** — global fledge configuration
 - **Doctor** — environment diagnostics with structured pass/warn/fail view
 

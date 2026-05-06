@@ -126,9 +126,133 @@ function renderMarkdown(raw) {
   return text;
 }
 
+// --- Ops console (live SSE output) ---
+
+const opsConsole = {
+  current: null, // EventSource
+  failed: false,
+  lastTitle: "",
+
+  el() { return $("#ops-console"); },
+  bodyEl() { return $("#ops-console-body"); },
+  titleEl() { return $("#ops-console-title"); },
+
+  open(title) {
+    const el = this.el();
+    if (!el) return;
+    this.lastTitle = title;
+    this.titleEl().textContent = title;
+    this.bodyEl().innerHTML = "";
+    this.failed = false;
+    el.classList.remove("hidden", "collapsed", "ops-console-success", "ops-console-error");
+    el.classList.add("ops-console-running");
+  },
+
+  append(line, kind = "stdout") {
+    const body = this.bodyEl();
+    if (!body) return;
+    const div = document.createElement("div");
+    div.className = `ops-console-line ops-console-line-${kind}`;
+    div.textContent = line;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+  },
+
+  meta(message) { this.append(message, "meta"); },
+
+  finish(success, summary) {
+    const el = this.el();
+    if (!el) return;
+    el.classList.remove("ops-console-running");
+    el.classList.add(success ? "ops-console-success" : "ops-console-error");
+    if (summary) this.titleEl().textContent = summary;
+  },
+
+  close() {
+    if (this.current) {
+      this.current.close();
+      this.current = null;
+    }
+    this.el()?.classList.add("hidden");
+  },
+
+  attach(source, { title, onSuccess, onFailure } = {}) {
+    if (this.current) this.current.close();
+    this.open(title);
+    const url = new URL(source, location.origin);
+    const evt = new EventSource(url.toString());
+    this.current = evt;
+
+    const handle = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.kind === "stdout" || payload.kind === "stderr") {
+          this.append(payload.line ?? "", payload.kind);
+        } else if (payload.kind === "error") {
+          this.append(payload.message ?? "error", "error");
+        } else if (payload.kind === "done") {
+          const success = payload.exitCode === 0;
+          this.finish(success, `${title} · ${success ? "ok" : `exit ${payload.exitCode}`}`);
+          this.current?.close();
+          this.current = null;
+          (success ? onSuccess : onFailure)?.(payload);
+        }
+      } catch {
+        this.append(event.data, "error");
+      }
+    };
+
+    evt.addEventListener("stdout", handle);
+    evt.addEventListener("stderr", handle);
+    evt.addEventListener("done", handle);
+    evt.addEventListener("error", (e) => {
+      // EventSource itself errored (network / closed). If we already saw
+      // a `done` event, this is a benign close; otherwise surface it.
+      if (this.current === evt) {
+        this.append("connection lost", "error");
+        this.finish(false, `${title} · connection lost`);
+        this.current?.close();
+        this.current = null;
+        onFailure?.({ exitCode: -1 });
+      }
+    });
+  },
+};
+
 // --- Toast ---
 
 let toastTimer = null;
+
+async function copyToClipboard(text, btn) {
+  if (!text) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // Fallback for non-secure contexts (e.g. http on a remote IP).
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    showToast("Copied", "success", 1500);
+    if (btn) {
+      const original = btn.textContent;
+      btn.textContent = "Copied";
+      btn.classList.add("btn-copy-done");
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.classList.remove("btn-copy-done");
+      }, 1200);
+    }
+  } catch (e) {
+    showToast(`Copy failed: ${e.message || e}`, "error");
+  }
+}
 
 function showToast(message, kind = "info", durationMs = 3500) {
   let toast = $("#toast");
@@ -150,6 +274,7 @@ function showToast(message, kind = "info", durationMs = 3500) {
 
 let installedBySource = new Map();
 let installedByName = new Map();
+let outdatedByName = new Map();
 
 async function refreshInstalled() {
   const list = await api("/plugins");
@@ -163,56 +288,78 @@ async function refreshInstalled() {
   return plugins;
 }
 
+async function refreshOutdated() {
+  const data = await api("/plugins/outdated");
+  const items = Array.isArray(data?.items) ? data.items : [];
+  outdatedByName = new Map();
+  for (const it of items) {
+    if (it?.name) outdatedByName.set(it.name, it);
+  }
+  return outdatedByName;
+}
+
 function isInstalled(repoFullName) {
   return installedBySource.has(String(repoFullName || "").toLowerCase());
 }
 
+function outdatedFor(name) {
+  if (!name) return null;
+  const entry = outdatedByName.get(name);
+  return entry?.outdated ? entry : null;
+}
+
 // --- Actions ---
 
-async function installRepo(fullName, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Installing…"; }
-  showToast(`Installing ${fullName}…`, "info", 0);
-  const result = await postJSON("/plugins/install", { source: fullName });
-  if (result?.success) {
-    showToast(`Installed ${fullName}`, "success");
-    await refreshInstalled();
-    invalidatePages(["installed", "store"]);
-    refreshActivePage();
-  } else {
-    showToast(`Install failed: ${truncate(result?.error || "unknown", 200)}`, "error", 6000);
-    if (btn) { btn.disabled = false; btn.textContent = "Install"; }
-  }
+function streamPluginOp({ url, title, restoreLabel, btn, successLabel }) {
+  if (btn) { btn.disabled = true; btn.dataset.originalLabel = btn.textContent; btn.textContent = restoreLabel; }
+  showToast(`${title}…`, "info", 0);
+
+  opsConsole.attach(url, {
+    title,
+    onSuccess: async () => {
+      showToast(successLabel, "success");
+      await refreshInstalled();
+      await refreshOutdated().catch(() => {});
+      invalidatePages(["installed", "store"]);
+      refreshActivePage();
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.originalLabel || btn.textContent; }
+    },
+    onFailure: () => {
+      showToast(`${title} failed — see console`, "error", 6000);
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.originalLabel || btn.textContent; }
+    },
+  });
 }
 
-async function removePlugin(name, btn) {
+function installRepo(fullName, btn) {
+  streamPluginOp({
+    url: `/api/plugins/install/stream?source=${encodeURIComponent(fullName)}`,
+    title: `Install ${fullName}`,
+    restoreLabel: "Installing…",
+    successLabel: `Installed ${fullName}`,
+    btn,
+  });
+}
+
+function removePlugin(name, btn) {
   if (!confirm(`Remove ${name}?`)) return;
-  if (btn) { btn.disabled = true; btn.textContent = "Removing…"; }
-  showToast(`Removing ${name}…`, "info", 0);
-  const result = await postJSON("/plugins/remove", { name });
-  if (result?.success) {
-    showToast(`Removed ${name}`, "success");
-    await refreshInstalled();
-    invalidatePages(["installed", "store"]);
-    refreshActivePage();
-  } else {
-    showToast(`Remove failed: ${truncate(result?.error || "unknown", 200)}`, "error", 6000);
-    if (btn) { btn.disabled = false; btn.textContent = "Remove"; }
-  }
+  streamPluginOp({
+    url: `/api/plugins/remove/stream?name=${encodeURIComponent(name)}`,
+    title: `Remove ${name}`,
+    restoreLabel: "Removing…",
+    successLabel: `Removed ${name}`,
+    btn,
+  });
 }
 
-async function updatePlugin(name, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Updating…"; }
-  showToast(`Updating ${name}…`, "info", 0);
-  const result = await postJSON("/plugins/update", { name });
-  if (result?.success) {
-    showToast(`Updated ${name}`, "success");
-    await refreshInstalled();
-    invalidatePages(["installed", "store"]);
-    refreshActivePage();
-  } else {
-    showToast(`Update failed: ${truncate(result?.error || "unknown", 200)}`, "error", 6000);
-    if (btn) { btn.disabled = false; btn.textContent = "Update"; }
-  }
+function updatePlugin(name, btn) {
+  streamPluginOp({
+    url: `/api/plugins/update/stream${name ? `?name=${encodeURIComponent(name)}` : ""}`,
+    title: name ? `Update ${name}` : "Update all plugins",
+    restoreLabel: "Updating…",
+    successLabel: name ? `Updated ${name}` : "Updated plugins",
+    btn,
+  });
 }
 
 function invalidatePages(names) {
@@ -273,6 +420,42 @@ function statusBadge(status) {
   return `<span class="status-pill">${escape(status || "?")}</span>`;
 }
 
+// --- Installed list ---
+
+function renderInstalledCard(p) {
+  const update = outdatedFor(p.name);
+  const updateBtn = update
+    ? `<button class="btn btn-sm" data-action="update" data-name="${escape(p.name)}" title="${escape(update.current)} → ${escape(update.latest)}">Update to ${escape(update.latest)}</button>`
+    : `<button class="btn btn-sm btn-outline" data-action="update" data-name="${escape(p.name)}">Update</button>`;
+
+  const versionBadge = p.version
+    ? update
+      ? `<span class="badge badge-outdated">v${escape(p.version)} → ${escape(update.latest)}</span>`
+      : `<span class="badge badge-version">v${escape(p.version)}</span>`
+    : "";
+
+  return `
+    <div class="item-card${update ? " item-card-outdated" : ""}">
+      <div class="item-name">${escape(p.name)}</div>
+      <div class="item-desc">${escape(p.source || "")}</div>
+      <div class="item-meta">
+        ${trustBadge(p.source, p.trust_tier)}
+        ${versionBadge}
+        ${(p.commands || []).map((c) => `<span class="badge badge-command">${escape(c)}</span>`).join("")}
+      </div>
+      <div class="item-actions">
+        ${updateBtn}
+        <button class="btn btn-sm btn-danger" data-action="remove" data-name="${escape(p.name)}">Remove</button>
+      </div>
+    </div>`;
+}
+
+function renderInstalledList(plugins) {
+  const list = $("#installed-plugins-list");
+  if (!list) return;
+  html(list, plugins.map(renderInstalledCard).join(""));
+}
+
 // --- Store card ---
 
 function renderStoreCard(repo) {
@@ -282,10 +465,15 @@ function renderStoreCard(repo) {
   const installed = isInstalled(repo.full_name);
   const fullEsc = escape(repo.full_name || "");
   const installedPlugin = installedBySource.get((repo.full_name || "").toLowerCase());
+  const update = installedPlugin ? outdatedFor(installedPlugin.name) : null;
+
+  const updateBtn = update
+    ? `<button class="btn btn-sm" data-action="update" data-name="${escape(installedPlugin.name)}" title="${escape(update.current)} → ${escape(update.latest)}">Update to ${escape(update.latest)}</button>`
+    : `<button class="btn btn-sm btn-outline" data-action="update" data-name="${escape(installedPlugin?.name || repo.name)}">Update</button>`;
 
   const actions = installed
     ? `<button class="btn btn-sm btn-outline" data-action="readme" data-owner="${escape(repo.owner?.login)}" data-repo="${escape(repo.name)}">Readme</button>
-       <button class="btn btn-sm btn-outline" data-action="update" data-name="${escape(installedPlugin?.name || repo.name)}">Update</button>
+       ${updateBtn}
        <button class="btn btn-sm btn-danger" data-action="remove" data-name="${escape(installedPlugin?.name || repo.name)}">Remove</button>`
     : `<button class="btn btn-sm btn-outline" data-action="readme" data-owner="${escape(repo.owner?.login)}" data-repo="${escape(repo.name)}">Readme</button>
        <button class="btn btn-sm" data-action="install" data-source="${fullEsc}">Install</button>`;
@@ -304,7 +492,7 @@ function renderStoreCard(repo) {
     : owner;
 
   return `
-    <div class="store-card${installed ? " store-card-installed" : ""}">
+    <div class="store-card${installed ? " store-card-installed" : ""}${update ? " store-card-outdated" : ""}">
       <div class="store-card-header">
         <img class="store-card-avatar" src="${escape(repo.owner?.avatar_url || "")}" alt="${owner}" loading="lazy">
         <div class="store-card-title">
@@ -314,7 +502,8 @@ function renderStoreCard(repo) {
           <div class="store-card-author">
             ${ownerLink}
             ${isOfficial ? '<span class="badge badge-official">official</span>' : ""}
-            ${installed ? '<span class="badge badge-installed">installed</span>' : ""}
+            ${installed && !update ? '<span class="badge badge-installed">installed</span>' : ""}
+            ${update ? `<span class="badge badge-outdated">v${escape(update.current)} → ${escape(update.latest)}</span>` : ""}
           </div>
         </div>
       </div>
@@ -555,7 +744,12 @@ function renderDoctor(report) {
                 ${chk.version ? `<span class="badge badge-version">${escape(chk.version)}</span>` : ""}
               </div>
               ${chk.detail ? `<div class="doctor-check-detail">${escape(chk.detail)}</div>` : ""}
-              ${chk.fix ? `<div class="doctor-check-fix"><strong>Fix:</strong> ${escape(chk.fix)}</div>` : ""}
+              ${chk.fix ? `
+                <div class="doctor-check-fix">
+                  <span class="doctor-check-fix-label">Fix</span>
+                  <code class="doctor-check-fix-cmd">${escape(chk.fix)}</code>
+                  <button class="btn-copy" data-action="copy" data-text="${escape(chk.fix)}" title="Copy to clipboard">Copy</button>
+                </div>` : ""}
             </div>
           </div>`)
         .join("");
@@ -778,113 +972,35 @@ const loaders = {
     renderResultCount(typeof data?.total === "number" ? data.total : items.length);
     if (items.length === 0) {
       html(grid, renderEmpty("No packages match these filters. Try removing one or clearing all."));
-    } else {
-      html(grid, items.map(renderStoreCard).join(""));
+      return;
     }
+    html(grid, items.map(renderStoreCard).join(""));
+
+    // Outdated info hits GitHub once per installed plugin, so layer it on
+    // after the grid is already visible.
+    refreshOutdated().then(() => {
+      if ($("#page-store.active")) html(grid, items.map(renderStoreCard).join(""));
+    });
   },
 
   async installed() {
-    if (loaded.installed) return;
-    const [info, plugins, templates] = await Promise.all([
-      api("/introspect"),
-      refreshInstalled(),
-      api("/templates"),
-    ]);
+    const pluginList = await refreshInstalled();
+    const list = $("#installed-plugins-list");
 
-    const grid = $("#stats-grid");
-    const cmds = Array.isArray(info?.commands) ? info.commands : [];
-    const pluginList = Array.isArray(plugins) ? plugins : [];
-    const templateList = Array.isArray(templates) ? templates : [];
-    const topLevel = cmds.length;
-    const subCmds = cmds.reduce((n, c) => n + (c.subcommands?.length || 0), 0);
-
-    html(grid, `
-      <div class="stat-card"><div class="stat-value">${pluginList.length}</div><div class="stat-label">Plugins</div></div>
-      <div class="stat-card"><div class="stat-value">${templateList.length}</div><div class="stat-label">Templates</div></div>
-      <div class="stat-card"><div class="stat-value">${topLevel}</div><div class="stat-label">Commands</div></div>
-      <div class="stat-card"><div class="stat-value">${subCmds}</div><div class="stat-label">Subcommands</div></div>`);
-
-    const pluginsList = $("#installed-plugins-list");
     if (pluginList.length === 0) {
-      html(pluginsList, renderEmpty('No plugins installed. Run <code>fledge plugins install --defaults</code>'));
-    } else {
-      html(pluginsList, pluginList.map((p) => `
-        <div class="item-card">
-          <div class="item-name">${escape(p.name)}</div>
-          <div class="item-desc">${escape(p.source || "")}</div>
-          <div class="item-meta">
-            ${trustBadge(p.source, p.trust_tier)}
-            ${p.version ? `<span class="badge badge-version">v${escape(p.version)}</span>` : ""}
-            ${(p.commands || []).map((c) => `<span class="badge badge-command">${escape(c)}</span>`).join("")}
-          </div>
-          <div class="item-actions">
-            <button class="btn btn-sm btn-outline" data-action="update" data-name="${escape(p.name)}">Update</button>
-            <button class="btn btn-sm btn-danger" data-action="remove" data-name="${escape(p.name)}">Remove</button>
-          </div>
-        </div>`).join(""));
-    }
-
-    const templatesList = $("#installed-templates-list");
-    if (templateList.length === 0) {
-      html(templatesList, renderEmpty("No templates found"));
-    } else {
-      html(templatesList, templateList.map((t) => `
-        <div class="item-card">
-          <div class="item-name">${escape(t.name || t.full_name || "unknown")}</div>
-          <div class="item-desc">${escape(t.description || "")}</div>
-          <div class="item-meta">
-            ${t.language ? `<span class="badge badge-command">${escape(t.language)}</span>` : ""}
-            ${t.stars != null ? `<span class="badge badge-version">${t.stars} stars</span>` : ""}
-          </div>
-        </div>`).join(""));
-    }
-
-    const tree = $("#command-tree");
-    if (cmds.length === 0) {
-      html(tree, renderEmpty("No commands found. Is fledge installed?"));
-    } else {
-      html(tree, cmds.map((cmd) => `
-        <div class="cmd-group">
-          <div class="cmd-group-name">fledge ${escape(cmd.name)}</div>
-          ${cmd.about ? `<div class="cmd-item">${escape(cmd.about)}</div>` : ""}
-          ${(cmd.subcommands || []).map((sub) =>
-            `<div class="cmd-item"><span>${escape(sub.name)}</span> ${sub.about ? "— " + escape(sub.about) : ""}</div>`
-          ).join("")}
-        </div>`).join(""));
-    }
-
-    loaded.installed = true;
-  },
-
-  async lanes() {
-    if (loaded.lanes) return;
-    const data = await api("/lanes");
-    const list = $("#lanes-list");
-
-    if (data?.error) {
-      html(list, renderError(typeof data.error === "string" ? data.error : JSON.stringify(data.error)));
+      html(list, renderEmpty('No plugins installed. Browse the <a href="#" data-nav="store">Store</a> or run <code>fledge plugins install --defaults</code>'));
+      loaded.installed = true;
       return;
     }
 
-    const lanes = Array.isArray(data) ? data : [];
-    if (lanes.length === 0) {
-      html(list, renderEmpty('No lanes defined. Add lanes to your <code>fledge.toml</code>'));
-    } else {
-      html(list, lanes.map((l) => {
-        const stepCount = typeof l.step_count === "number" ? l.step_count : (typeof l.steps === "number" ? l.steps : null);
-        return `
-          <div class="lane-card">
-            <div class="lane-name">${escape(l.name)}</div>
-            ${l.description ? `<div class="lane-desc">${escape(l.description)}</div>` : ""}
-            <div class="lane-meta">
-              ${stepCount != null ? `<span class="badge badge-version">${stepCount} step${stepCount === 1 ? "" : "s"}</span>` : ""}
-              ${l.fail_fast ? '<span class="badge badge-team">fail-fast</span>' : ""}
-              ${l.trust_tier ? `<span class="badge badge-command">${escape(l.trust_tier)}</span>` : ""}
-            </div>
-          </div>`;
-      }).join(""));
-    }
-    loaded.lanes = true;
+    renderInstalledList(pluginList);
+    loaded.installed = true;
+
+    // Outdated lookup hits GitHub once per plugin, so render the list first
+    // then re-render with badges as soon as the data arrives.
+    refreshOutdated().then(() => {
+      if ($("#page-installed.active")) renderInstalledList(pluginList);
+    });
   },
 
   async config() {
@@ -922,8 +1038,17 @@ const loaders = {
 
   async doctor() {
     const wrap = $("#doctor-output");
+    const meta = $("#doctor-meta");
+    const btn = $("#doctor-rerun");
     html(wrap, '<div class="loading">Running doctor</div>');
+    if (meta) meta.textContent = "";
+    if (btn) { btn.disabled = true; btn.textContent = "Running…"; }
+
     const data = await api("/doctor");
+
+    if (btn) { btn.disabled = false; btn.textContent = "Re-run"; }
+    if (meta) meta.textContent = `Last run · ${new Date().toLocaleTimeString()}`;
+
     if (data?.error) {
       html(wrap, renderError(typeof data.error === "string" ? data.error : JSON.stringify(data.error)));
       return;
@@ -944,7 +1069,6 @@ const cmdPages = [
   { label: "Overview", page: "project", hint: "Project" },
   { label: "Store", page: "store", hint: "Browse packages" },
   { label: "Installed", page: "installed", hint: "Plugins & templates" },
-  { label: "Lanes", page: "lanes", hint: "Workflow pipelines" },
   { label: "Config", page: "config", hint: "Global config" },
   { label: "Doctor", page: "doctor", hint: "Diagnostics" },
 ];
@@ -1040,6 +1164,12 @@ document.addEventListener("click", (e) => {
     if (search) search.value = "";
     loaders.store();
   }
+  else if (action === "copy") {
+    copyToClipboard(btn.dataset.text || "", btn);
+  }
+  else if (action === "doctor-rerun") {
+    loaders.doctor();
+  }
   else if (action === "toggle-facet") {
     const key = btn.dataset.facet;
     if (key && key in facetExpanded) {
@@ -1067,14 +1197,12 @@ $$(".category-tabs .tab").forEach((tab) => {
   });
 });
 
-// Section tabs
-$$(".section-tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    $$(".section-tab").forEach((t) => t.classList.remove("active"));
-    tab.classList.add("active");
-    $$(".installed-section").forEach((s) => s.classList.remove("active"));
-    $(`#installed-${tab.dataset.section}`)?.classList.add("active");
-  });
+// In-page nav links (empty-state CTAs)
+document.addEventListener("click", (e) => {
+  const link = e.target.closest("[data-nav]");
+  if (!link) return;
+  e.preventDefault();
+  navigate(link.dataset.nav);
 });
 
 // Store search — debounced live filter; Enter forces an immediate run.
@@ -1105,6 +1233,12 @@ $("#store-search").addEventListener("keydown", (e) => {
 });
 
 $("#clear-filters")?.addEventListener("click", () => clearStoreFilters());
+
+// Ops console controls
+$("#ops-console-clear")?.addEventListener("click", () => opsConsole.close());
+$("#ops-console-toggle")?.addEventListener("click", () => {
+  $("#ops-console")?.classList.toggle("collapsed");
+});
 
 // Modal close
 $(".modal-backdrop")?.addEventListener("click", () => {

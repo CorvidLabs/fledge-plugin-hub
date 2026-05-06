@@ -40,6 +40,63 @@ async function ghFetch(url: string): Promise<unknown> {
   return data;
 }
 
+// `null` means "we asked GitHub and it had nothing". A thrown error means the
+// request itself failed — caller decides whether to surface or swallow.
+async function ghFetchOptional(url: string): Promise<unknown | null> {
+  const hit = cached(url);
+  if (hit !== null && hit !== undefined) return hit;
+
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "fledge-plugin-hub",
+    },
+  });
+
+  if (res.status === 404) {
+    setCache(url, null);
+    return null;
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub API ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+  setCache(url, data);
+  return data;
+}
+
+export async function fetchLatestVersion(owner: string, repo: string): Promise<string | null> {
+  // Prefer GitHub Releases (richer metadata, the maintainer marked it).
+  // Fall back to the most recent tag, since plenty of fledge repos tag
+  // without cutting a Release.
+  const releaseUrl = `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`;
+  try {
+    const release = await ghFetchOptional(releaseUrl);
+    if (release && typeof release === "object") {
+      const tag = (release as { tag_name?: unknown }).tag_name;
+      if (typeof tag === "string" && tag) return tag;
+    }
+  } catch {
+    // fall through to tags
+  }
+
+  const tagsUrl = `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tags?per_page=1`;
+  try {
+    const tags = await ghFetchOptional(tagsUrl);
+    if (Array.isArray(tags) && tags.length > 0) {
+      const name = (tags[0] as { name?: unknown }).name;
+      if (typeof name === "string" && name) return name;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 export interface GHRepo {
   full_name: string;
   name: string;
