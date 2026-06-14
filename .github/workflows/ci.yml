@@ -3,15 +3,36 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - src/**
+      - tests/**
+      - bin/**
+      - package.json
+      - bun.lock
+      - tsconfig.json
+      - .github/workflows/ci.yml
   pull_request:
     branches: [main]
+    paths:
+      - src/**
+      - tests/**
+      - bin/**
+      - package.json
+      - bun.lock
+      - tsconfig.json
+      - .github/workflows/ci.yml
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -21,8 +42,9 @@ jobs:
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -32,8 +54,9 @@ jobs:
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run shellcheck
         run: |
           shopt -s nullglob
