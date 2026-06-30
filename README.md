@@ -51,4 +51,4 @@ bun run typecheck    # type-check without emitting
 
 ## Replaces
 
-This plugin supersedes [`fledge-plugin-dashboard`](https://github.com/CorvidLabs/fledge-dashboard) (project view) by combining its project-scoped surface with global plugin / template management.
+This plugin supersedes [`fledge-plugin-dashboard`](https://github.com/CorvidLabs/fledge-plugin-dashboard) (project view) by combining its project-scoped surface with global plugin / template management.
