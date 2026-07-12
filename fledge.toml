@@ -1,0 +1,15 @@
+# fledge.toml — project task definitions
+[project]
+name = "fledge-plugin-hub"
+language = "typescript"
+
+[tasks]
+test = "bun test"
+typecheck = "bunx tsc --noEmit"
+shellcheck = "shellcheck bin/fledge-hub"
+syntax = "bash -n bin/fledge-hub"
+manifest = "grep -q 'binary = \"bin/fledge-hub\"' plugin.toml"
+
+[lanes.verify]
+description = "Test, type-check, and validate the Hub plugin"
+steps = ["test", "typecheck", "shellcheck", "syntax", "manifest"]
