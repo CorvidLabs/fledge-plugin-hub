@@ -1,0 +1,5 @@
+[registry]
+name = "fledge-plugin-hub-trust-wave5"
+
+[specs]
+hub = "specs/hub/hub.spec.md"

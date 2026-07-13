@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "enabled": true,
+  "require_change_for_meaningful_files": true,
+  "meaningful_paths": [
+    "src/",
+    "tests/",
+    "docs/",
+    "bin/",
+    ".github/",
+    "package.json",
+    "bun.lock",
+    "plugin.toml",
+    "fledge.toml",
+    ".trust.toml",
+    ".attest.json",
+    ".augur.toml",
+    "AGENTS.md",
+    "README.md",
+    "tsconfig.json",
+    ".specsync/sdd.json",
+    ".specsync/config.toml",
+    ".specsync/config.json",
+    ".specsync/version",
+    "public/"
+  ],
+  "ignored_paths": [
+    ".specsync/changes/",
+    ".specsync/adoption-report.json",
+    "specs/"
+  ],
+  "verification_commands": [
+    "fledge lanes run verify"
+  ],
+  "custom_artifacts": {},
+  "principles_file": null
+}
