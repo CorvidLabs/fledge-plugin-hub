@@ -7,8 +7,6 @@ description: Keep markdown module specs in specs/<module>/ synchronized with sou
 
 This project uses [spec-sync](https://github.com/CorvidLabs/spec-sync) for bidirectional spec-to-code validation. Specs live in `specs/<module>/<module>.spec.md`.
 
-## Companion files
-
 ## Verified SDD change lifecycle (5.0)
 
 For every meaningful source, test, public documentation, schema, or configuration change:
@@ -26,6 +24,8 @@ For every meaningful source, test, public documentation, schema, or configuratio
 Never invent or self-grant either human approval. If an approved definition changes, its digest
 becomes stale and must be approved again. `specsync check` validates canonical specs plus approved
 active deltas, requirement-to-test evidence, change coverage, and CI gates.
+
+## Companion files
 
 Each canonical spec may have policy-selected companion files. Read and update the ones present; do not create empty companions only for ceremony:
 
@@ -62,7 +62,7 @@ minimal spec-only draft. Complete the spec before writing code. The
 accepts either a bare module name or a natural-language feature description
 (e.g. `/specsync:create-spec "I want a feature that lets users export their
 data as CSV"`) — pass a description and it will pick a module name and use
-the description to draft the spec's Purpose and Requirements.
+the description to draft the spec's Purpose and Invariants plus companion requirements.
 
 ## Key commands
 

@@ -5,10 +5,10 @@
   "title": "Adopt SpecSync 5.0.1 and Trust 1.0.0 governance for the Hub Fledge plugin",
   "description": "Adopt SpecSync 5.0.1 and Trust 1.0.0 governance for the Hub Fledge plugin",
   "kind": "migration",
-  "state": "draft",
+  "state": "implementing",
   "base_commit": "7e6433b1ce154c0874c3a9465cbdb5727a0c95c2",
   "created_at": 1783880124,
-  "updated_at": 1783880133,
+  "updated_at": 1783954409,
   "affected_specs": [
     "hub"
   ],
@@ -24,19 +24,18 @@
     ".github/",
     ".specsync/",
     "specs/",
-    ".trust.toml"
+    ".trust.toml",
+    ".attest.json",
+    ".augur.toml",
+    "AGENTS.md"
   ],
   "no_spec_change": false,
   "no_spec_change_rationale": null,
   "acceptance_criteria": [
-    "SpecSync strict coverage is 100% with all 36 exports documented; Claude",
-    "Cursor",
-    "Codex",
-    "and Gemini integrations are installed; Trust doctor and verification pass; 29 Bun tests",
-    "TypeScript checking",
-    "ShellCheck",
-    "syntax",
-    "and manifest validation remain green."
+    "SpecSync strict coverage is 100% with all 36 exports documented.",
+    "Claude, Cursor, Codex, and Gemini integrations are installed.",
+    "Trust doctor and verification pass.",
+    "29 Bun tests, TypeScript checking, ShellCheck, syntax, and manifest validation remain green."
   ],
   "selected_artifacts": [
     "context",
