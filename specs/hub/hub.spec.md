@@ -11,6 +11,8 @@ files:
   - src/semver.ts
   - src/server.ts
   - public/app.js
+  - public/index.html
+  - public/style.css
 
 db_tables: []
 depends_on: []
